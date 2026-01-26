@@ -1,0 +1,17 @@
+# IntelliJ IDEA / GoLand
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Cursor (local state)
+.cursor/
+
+# Local env/config (never commit secrets)
+.env
+.env.*
+
+# macOS
+.DS_Store
+
