@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
 
@@ -18,18 +17,14 @@ const (
 
 // StartServer поднимает HTTP-сервер и запускает его в отдельной горутине.
 // Возвращает сам сервер (для Shutdown) и канал, в который будет отправлена ошибка ListenAndServe.
-func StartServer(appConfig config.Config, deps AuthDeps) (*http.Server, <-chan error) {
-	router := gin.New()
-	router.Use(gin.Recovery())
-	RegisterRoutes(router, deps)
-
+func StartServer(appConfig config.Config, deps Deps) (*http.Server, <-chan error) {
 	srv := &http.Server{
 		Addr:              appConfig.RunAddress,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
-		Handler:           router,
+		Handler:           InitRouter(deps),
 	}
 
 	errChannel := make(chan error, 1)

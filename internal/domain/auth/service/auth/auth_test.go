@@ -65,5 +65,3 @@ func TestService_HashAndComparePassword(t *testing.T) {
 		t.Fatalf("expected mismatch error")
 	}
 }
-
-// Token issuing/parsing is covered by adapter tests (internal/adapter/token/jwt).

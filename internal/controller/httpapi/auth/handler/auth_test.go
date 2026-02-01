@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	networkmodel "loyalty/internal/controller/httpapi/auth/model"
-	"loyalty/internal/controller/httpapi/common"
+	common "loyalty/internal/controller/httpapi/common/model"
 	"loyalty/internal/domain/auth/model"
 	"loyalty/internal/domain/auth/usecase"
 )

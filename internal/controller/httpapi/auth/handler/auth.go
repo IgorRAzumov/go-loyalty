@@ -1,13 +1,13 @@
-// Package handler содержит HTTP-хендлеры, реализующие публичные endpoint'ы API.
 package handler
 
 import (
 	networkmodel "loyalty/internal/controller/httpapi/auth/model"
-	"loyalty/internal/controller/httpapi/common"
+	common "loyalty/internal/controller/httpapi/common/model"
 	"loyalty/internal/domain/auth/usecase"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog/log"
 )
 
 // Handler — HTTP-хендлеры аутентификации (register/login).
@@ -30,6 +30,7 @@ func (handler *Handler) Register(ctx *gin.Context) {
 
 	token, err := handler.authUsecase.Register(ctx.Request.Context(), request.Login, request.Password)
 	if err != nil {
+		log.Error().Err(err).Str("login", request.Login).Msg("register failed")
 		status, code := common.MapError(err)
 		common.WriteError(ctx, status, code)
 		return
@@ -39,7 +40,7 @@ func (handler *Handler) Register(ctx *gin.Context) {
 }
 
 // Login обрабатывает аутентификацию пользователя: валидирует запрос и возвращает токен. В реальной жизни пароль
-// не должен передаваться в открытом виде оо клиента
+// не должен передаваться в открытом виде от клиента
 func (handler *Handler) Login(ctx *gin.Context) {
 	var request networkmodel.LoginRequest
 	if err := ctx.ShouldBindJSON(&request); err != nil {
@@ -49,6 +50,7 @@ func (handler *Handler) Login(ctx *gin.Context) {
 
 	token, err := handler.authUsecase.Login(ctx.Request.Context(), request.Login, request.Password)
 	if err != nil {
+		log.Error().Err(err).Str("login", request.Login).Msg("login failed")
 		status, code := common.MapError(err)
 		common.WriteError(ctx, status, code)
 		return

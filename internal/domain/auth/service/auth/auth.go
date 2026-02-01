@@ -1,4 +1,3 @@
-// Package auth содержит реализацию доменного AuthService (валидация и пароли).
 package auth
 
 import (

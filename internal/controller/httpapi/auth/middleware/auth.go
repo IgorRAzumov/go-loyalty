@@ -1,8 +1,8 @@
-// Package middleware содержит HTTP middleware (например, авторизацию).
 package middleware
 
 import (
-	"loyalty/internal/controller/httpapi/common"
+	"loyalty/internal/controller/httpapi/auth/authctx"
+	common "loyalty/internal/controller/httpapi/common/model"
 	"loyalty/internal/domain/auth/service"
 	"net/http"
 	"strings"
@@ -11,17 +11,12 @@ import (
 )
 
 const (
-	ctxUserIDKey = "userID"
-	bearer       = "bearer "
-	token        = "token"
+	bearer = "bearer "
+	token  = "token"
 )
 
 // NewAuthMiddleware создаёт middleware авторизации по JWT (Bearer или cookie).
 func NewAuthMiddleware(tokenService service.TokenService) gin.HandlerFunc {
-	return authMiddleware(tokenService)
-}
-
-func authMiddleware(tokenService service.TokenService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		token := tokenFromRequest(ctx)
 		if token == "" {
@@ -35,7 +30,7 @@ func authMiddleware(tokenService service.TokenService) gin.HandlerFunc {
 			ctx.Abort()
 			return
 		}
-		ctx.Set(ctxUserIDKey, claims.UserID)
+		ctx.Request = ctx.Request.WithContext(authctx.WithUserID(ctx.Request.Context(), claims.UserID))
 		ctx.Next()
 	}
 }

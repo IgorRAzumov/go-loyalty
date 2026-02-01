@@ -1,4 +1,3 @@
-// Package auth содержит небольшие утилиты для работы с паролями и секретами (вспомогательный слой).
 package auth
 
 import "golang.org/x/crypto/bcrypt"

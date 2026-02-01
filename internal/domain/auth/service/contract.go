@@ -1,4 +1,3 @@
-// Package service содержит доменные сервисы и их контракты (порты) для подсистемы auth.
 package service
 
 import (

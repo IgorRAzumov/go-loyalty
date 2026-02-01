@@ -1,9 +1,10 @@
-// Package common содержит общие типы и константы для HTTP API (ответы, коды ошибок и т.п.).
-package common
+package model
 
 import (
 	"errors"
 	"loyalty/internal/domain/auth/model"
+	ordersmodel "loyalty/internal/domain/order/model"
+	withdrawalsmodel "loyalty/internal/domain/withdrawal/model"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,14 @@ const (
 	CodeInvalidCreds = "invalid_credentials"
 	// CodeUnauthorized — отсутствует/невалиден токен авторизации.
 	CodeUnauthorized = "unauthorized"
+	// CodeInvalidOrderNumber — неверный формат номера заказа / не проходит алгоритм Луна.
+	CodeInvalidOrderNumber = "invalid_order_number"
+	// CodeOrderAlreadyUploaded — номер заказа уже был загружен этим пользователем.
+	CodeOrderAlreadyUploaded = "order_already_uploaded"
+	// CodeOrderAlreadyUploadedByAnother — номер заказа уже был загружен другим пользователем.
+	CodeOrderAlreadyUploadedByAnother = "order_already_uploaded_by_another"
+	// CodeInsufficientFunds — на счету недостаточно средств.
+	CodeInsufficientFunds = "insufficient_funds"
 	// CodeInternal — внутренняя ошибка сервера (детали не раскрываются клиенту).
 	CodeInternal = "internal"
 )
@@ -69,6 +78,15 @@ func MapError(err error) (status int, code string) {
 		return http.StatusUnauthorized, CodeInvalidCreds
 	case errors.Is(err, model.ErrInvalidToken):
 		return http.StatusUnauthorized, CodeUnauthorized
+
+	case errors.Is(err, ordersmodel.ErrInvalidOrderNumber):
+		return http.StatusUnprocessableEntity, CodeInvalidOrderNumber
+	case errors.Is(err, ordersmodel.ErrOrderAlreadyUploaded):
+		return http.StatusOK, CodeOrderAlreadyUploaded
+	case errors.Is(err, ordersmodel.ErrOrderAlreadyUploadedByAnother):
+		return http.StatusConflict, CodeOrderAlreadyUploadedByAnother
+	case errors.Is(err, withdrawalsmodel.ErrInsufficientFunds):
+		return http.StatusPaymentRequired, CodeInsufficientFunds
 
 	default:
 		return http.StatusInternalServerError, CodeInternal

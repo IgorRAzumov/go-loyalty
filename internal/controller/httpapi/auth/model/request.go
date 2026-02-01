@@ -1,4 +1,3 @@
-// Package model содержит сетевые (transport-level) модели HTTP API для auth.
 package model
 
 // LoginRequest — тело запроса для регистрации/логина пользователя.

@@ -18,12 +18,15 @@ func TestStartServer_Shutdown(t *testing.T) {
 	}
 
 	svc := tokensvc.NewTokenService("secret", time.Hour)
-	srv, errCh := StartServer(cfg, AuthDeps{
+	srv, errCh := StartServer(cfg, Deps{
 		AuthUsecase: &mockAuthUsecase{
 			registerFn: func(context.Context, string, string) (string, error) { return "", nil },
 			loginFn:    func(context.Context, string, string) (string, error) { return "", nil },
 		},
-		TokenService: svc,
+		OrdersUsecase:      &mockOrdersUsecase{},
+		BalanceUsecase:     &mockBalanceUsecase{},
+		WithdrawalsUsecase: &mockWithdrawalsUsecase{},
+		TokenService:       svc,
 	})
 	if srv == nil || errCh == nil {
 		t.Fatalf("expected server and channel")
@@ -32,7 +35,6 @@ func TestStartServer_Shutdown(t *testing.T) {
 		t.Fatalf("unexpected timeouts")
 	}
 
-	// Let ListenAndServe start.
 	time.Sleep(20 * time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -41,7 +43,6 @@ func TestStartServer_Shutdown(t *testing.T) {
 
 	select {
 	case err := <-errCh:
-		// We accept both nil and ErrServerClosed here due to timing.
 		if err != nil && err != http.ErrServerClosed {
 			t.Fatalf("unexpected err: %v", err)
 		}

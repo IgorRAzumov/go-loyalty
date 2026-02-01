@@ -1,4 +1,3 @@
-// Package repository содержит контракты хранилища
 package repository
 
 import (

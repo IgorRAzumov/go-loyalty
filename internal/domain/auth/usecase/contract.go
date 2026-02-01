@@ -1,4 +1,3 @@
-// Package usecase содержит контракты usecase'ов (сценарии) домена.
 package usecase
 
 import "context"

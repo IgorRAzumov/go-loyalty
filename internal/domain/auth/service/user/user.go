@@ -1,4 +1,3 @@
-// Package user содержит доменный UserService (нормализация логина и работа с репозиторием).
 package user
 
 import (

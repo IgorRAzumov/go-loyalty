@@ -2,6 +2,7 @@ package middleware
 
 import (
 	tokensvc "loyalty/internal/adapter/token/jwt"
+	"loyalty/internal/controller/httpapi/auth/authctx"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,11 +38,10 @@ func TestAuthMiddleware_AllowsWithBearerToken(t *testing.T) {
 	r := gin.New()
 	r.Use(NewAuthMiddleware(svc))
 	r.GET("/x", func(c *gin.Context) {
-		v, ok := c.Get(ctxUserIDKey)
-		if !ok {
-			t.Fatalf("expected user id in context")
+		id, ok := authctx.UserID(c.Request.Context())
+		if !ok || id != 42 {
+			t.Fatalf("expected user id=42 in request context")
 		}
-		_, _ = v.(int64)
 		c.Status(http.StatusOK)
 	})
 

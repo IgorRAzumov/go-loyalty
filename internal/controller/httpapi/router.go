@@ -1,52 +1,86 @@
-// Package httpapi реализует HTTP API сервиса (роутинг, wiring хендлеров и middleware).
 package httpapi
 
 import (
 	"loyalty/internal/controller/httpapi/auth/handler"
 	"loyalty/internal/controller/httpapi/auth/middleware"
+	userbalance "loyalty/internal/controller/httpapi/balance/handler"
+	"loyalty/internal/controller/httpapi/common/middleware/gzip"
+	"loyalty/internal/controller/httpapi/common/middleware/logger"
+	"loyalty/internal/controller/httpapi/common/middleware/ratelimit"
+	userorders "loyalty/internal/controller/httpapi/order/handler"
+	userwithdrawals "loyalty/internal/controller/httpapi/withdrawal/handler"
 	"loyalty/internal/domain/auth/service"
-	"loyalty/internal/domain/auth/usecase"
-	"net/http"
+	authusecase "loyalty/internal/domain/auth/usecase"
+	balanceusecase "loyalty/internal/domain/balance/usecase"
+	ordersusecase "loyalty/internal/domain/order/usecase"
+	withdrawalsusecase "loyalty/internal/domain/withdrawal/usecase"
 
 	"github.com/gin-gonic/gin"
 )
 
-// AuthDeps содержит зависимости HTTP-слоя авторизации, необходимые для регистрации маршрутов.
-type AuthDeps struct {
-	// AuthUsecase — usecase аутентификации (register/login), реализующий бизнес-сценарии.
-	AuthUsecase usecase.AuthUsecase
-	// TokenService — сервис токенов (инфраструктура), используемый для авторизации запросов.
-	TokenService service.TokenService
+// Deps содержит зависимости HTTP-слоя, необходимые для регистрации маршрутов.
+type Deps struct {
+	AuthUsecase        authusecase.AuthUsecase
+	OrdersUsecase      ordersusecase.OrdersUsecase
+	BalanceUsecase     balanceusecase.BalanceUsecase
+	WithdrawalsUsecase withdrawalsusecase.WithdrawalsUsecase
+	TokenService       service.TokenService
+
+	EnableHTTPBodyLogging bool
+
+	AuthRateLimitRPS   int
+	AuthRateLimitBurst int
 }
 
-// RegisterRoutes регистрирует все HTTP-маршруты сервиса на переданном gin.Engine.
-func RegisterRoutes(routesEngine *gin.Engine, deps AuthDeps) {
+func RegisterRoutes(router *gin.Engine, deps Deps) {
+	registerRoutes(router, deps)
+}
+
+func InitRouter(deps Deps) *gin.Engine {
+	router := gin.New()
+	router.Use(logger.NewMiddleware(deps.EnableHTTPBodyLogging, "/api/user/register", "/api/user/login"))
+	router.Use(gin.Recovery())
+	registerRoutes(router, deps)
+	return router
+}
+
+func registerRoutes(routesEngine *gin.Engine, deps Deps) {
 	routesEngine.GET("/health", func(ctx *gin.Context) {
-		ctx.String(http.StatusOK, "ok")
+		ctx.String(200, "ok")
 	})
 
 	api := routesEngine.Group("/api")
-	{
-		registerAuthRoutes(api, deps.AuthUsecase)
-		registerUserRoutes(api, deps.TokenService)
-	}
-}
+	registerAuthRoutes(api, deps)
 
-func registerAuthRoutes(api *gin.RouterGroup, authUsecase usecase.AuthUsecase) {
-	authHandler := handler.NewAuthHandler(authUsecase)
-	api.POST("/user/register", authHandler.Register)
-	api.POST("/user/login", authHandler.Login)
-}
-
-func registerUserRoutes(api *gin.RouterGroup, tokenService service.TokenService) {
 	authed := api.Group("/user")
-	authed.Use(middleware.NewAuthMiddleware(tokenService))
+	authed.Use(middleware.NewAuthMiddleware(deps.TokenService))
+	authed.Use(gzip.NewMiddleware(1024, "/api/user/orders", "/api/user/withdrawals"))
 
-	// Минимальная реализация для теста авторизованной зоны
-	authed.GET("/balance", func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{
-			"current":   0,
-			"withdrawn": 0,
-		})
-	})
+	registerOrdersRoutes(authed, deps.OrdersUsecase)
+	registerBalanceRoutes(authed, deps.BalanceUsecase)
+	registerWithdrawalsRoutes(authed, deps.WithdrawalsUsecase)
+}
+
+func registerAuthRoutes(api *gin.RouterGroup, deps Deps) {
+	authHandler := handler.NewAuthHandler(deps.AuthUsecase)
+	rateLimiter := ratelimit.NewMiddleware(deps.AuthRateLimitRPS, deps.AuthRateLimitBurst)
+	api.POST("/user/register", rateLimiter, authHandler.Register)
+	api.POST("/user/login", rateLimiter, authHandler.Login)
+}
+
+func registerOrdersRoutes(authed *gin.RouterGroup, ordersUsecase ordersusecase.OrdersUsecase) {
+	ordersHandler := userorders.NewHandler(ordersUsecase)
+	authed.POST("/orders", ordersHandler.UploadOrder)
+	authed.GET("/orders", ordersHandler.ListOrders)
+}
+
+func registerBalanceRoutes(authed *gin.RouterGroup, balanceUsecase balanceusecase.BalanceUsecase) {
+	balanceHandler := userbalance.NewHandler(balanceUsecase)
+	authed.GET("/balance", balanceHandler.Get)
+}
+
+func registerWithdrawalsRoutes(authed *gin.RouterGroup, withdrawalsUsecase withdrawalsusecase.WithdrawalsUsecase) {
+	withdrawalsHandler := userwithdrawals.NewHandler(withdrawalsUsecase)
+	authed.POST("/balance/withdraw", withdrawalsHandler.Withdraw)
+	authed.GET("/withdrawals", withdrawalsHandler.List)
 }
