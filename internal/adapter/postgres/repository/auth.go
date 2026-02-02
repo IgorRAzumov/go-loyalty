@@ -25,36 +25,28 @@ func NewAuthUserRepository(db *sql.DB) *AuthUserRepository {
 
 // Create создаёт пользователя и инициализирует его накопительный счёт.
 func (repository *AuthUserRepository) Create(ctx context.Context, login string, passwordHash []byte) (authmodel.User, error) {
-	transaction, err := repository.db.BeginTx(ctx, nil)
-	if err != nil {
-		return authmodel.User{}, fmt.Errorf("begin transaction: %w", err)
-	}
-	defer func() { _ = transaction.Rollback() }()
-
-	insertCtx, insertCancel := util.WithQueryTimeout(ctx)
-	defer insertCancel()
-
 	var id int64
-	if err := transaction.QueryRowContext(
-		insertCtx,
-		`INSERT INTO users(login, password_hash) VALUES ($1, $2) RETURNING id`,
+	queryCtx, cancel := util.WithQueryTimeout(ctx)
+	defer cancel()
+
+	if err := repository.db.QueryRowContext(
+		queryCtx,
+		`WITH created AS (
+		   INSERT INTO users(login, password_hash)
+		   VALUES ($1, $2)
+		   RETURNING id
+		 )
+		 INSERT INTO accounts(user_id)
+		 SELECT id FROM created
+		 ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
+		 RETURNING user_id`,
 		login,
 		passwordHash,
 	).Scan(&id); err != nil {
 		if isUniqueViolation(err) {
 			return authmodel.User{}, authmodel.ErrLoginTaken
 		}
-		return authmodel.User{}, fmt.Errorf("insert user: %w", err)
-	}
-
-	accountCtx, accountCancel := util.WithQueryTimeout(ctx)
-	defer accountCancel()
-	if _, err := transaction.ExecContext(accountCtx, `INSERT INTO accounts(user_id) VALUES ($1) ON CONFLICT DO NOTHING`, id); err != nil {
-		return authmodel.User{}, fmt.Errorf("init account: %w", err)
-	}
-
-	if err := transaction.Commit(); err != nil {
-		return authmodel.User{}, fmt.Errorf("commit: %w", err)
+		return authmodel.User{}, fmt.Errorf("create user: %w", err)
 	}
 	return authmodel.User{ID: id, Login: login, PasswordHash: passwordHash}, nil
 }

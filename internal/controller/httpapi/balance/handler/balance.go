@@ -21,7 +21,11 @@ func NewHandler(usecase balusecase.BalanceUsecase) *Handler { return &Handler{us
 
 // Get возвращает текущий баланс пользователя.
 func (handler *Handler) Get(ctx *gin.Context) {
-	userID, _ := authctx.UserID(ctx.Request.Context())
+	userID, ok := authctx.UserID(ctx.Request.Context())
+	if !ok || userID <= 0 {
+		common.WriteError(ctx, http.StatusBadRequest, common.CodeBadRequest)
+		return
+	}
 	bal, err := handler.usecase.GetBalance(ctx, userID)
 	if err != nil {
 		status, code := common.MapError(err)

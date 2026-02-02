@@ -44,7 +44,6 @@ func Open(ctx context.Context, dsn string, poolCfg PoolConfig) (*sql.DB, error) 
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 
-	// Настраиваем connection pool для высокой нагрузки.
 	db.SetMaxOpenConns(poolCfg.MaxOpenConns)
 	db.SetMaxIdleConns(poolCfg.MaxIdleConns)
 	db.SetConnMaxLifetime(poolCfg.ConnMaxLifetime)

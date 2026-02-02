@@ -15,7 +15,6 @@ import (
 var migrationsFS embed.FS
 
 // ApplyMigrations применяет миграции к базе данных.
-// Это корректный способ инициализации схемы (вместо ad-hoc DDL в коде).
 func ApplyMigrations(db *sql.DB) error {
 	src, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
@@ -27,15 +26,15 @@ func ApplyMigrations(db *sql.DB) error {
 		return fmt.Errorf("migrations driver: %w", err)
 	}
 
-	m, err := migrate.NewWithInstance("iofs", src, "postgres", driver)
+	migrations, err := migrate.NewWithInstance("iofs", src, "postgres", driver)
 	if err != nil {
 		return fmt.Errorf("migrate init: %w", err)
 	}
 	defer func() {
-		_, _ = m.Close()
+		_, _ = migrations.Close()
 	}()
 
-	if err := m.Up(); err != nil {
+	if err := migrations.Up(); err != nil {
 		if errors.Is(err, migrate.ErrNoChange) {
 			return nil
 		}

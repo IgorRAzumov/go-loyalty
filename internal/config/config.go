@@ -1,4 +1,3 @@
-// Package config отвечает за конфигурацию приложения (env + флаги) и её валидацию.
 package config
 
 import (
@@ -7,6 +6,7 @@ import (
 	"loyalty/internal/util/auth"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,6 +18,20 @@ type Config struct {
 
 	JWTSecret string
 	JWTTTL    time.Duration
+
+	DBMaxOpenConns    int
+	DBMaxIdleConns    int
+	DBConnMaxLifetime time.Duration
+	DBConnMaxIdleTime time.Duration
+
+	EnableHTTPBodyLogging bool
+
+	DBQueryTimeout time.Duration
+
+	AuthRateLimitRPS   int
+	AuthRateLimitBurst int
+
+	LogLevel string
 }
 
 // LoadConfig загружает конфигурацию из env и CLI-флагов.
@@ -45,15 +59,28 @@ func LoadConfig() (Config, error) {
 	}
 
 	cfg := Config{
-		RunAddress:           runAddr,
-		DatabaseURI:          os.Getenv("DATABASE_URI"),
-		AccrualSystemAddress: os.Getenv("ACCRUAL_SYSTEM_ADDRESS"),
-		JWTSecret:            jwtSecret,
-		JWTTTL:               jwtTTL,
+		RunAddress:            runAddr,
+		DatabaseURI:           os.Getenv("DATABASE_URI"),
+		AccrualSystemAddress:  os.Getenv("ACCRUAL_SYSTEM_ADDRESS"),
+		JWTSecret:             jwtSecret,
+		JWTTTL:                jwtTTL,
+		DBMaxOpenConns:        parseIntEnv("DB_MAX_OPEN_CONNS", 100),
+		DBMaxIdleConns:        parseIntEnv("DB_MAX_IDLE_CONNS", 25),
+		DBConnMaxLifetime:     parseDurationEnv("DB_CONN_MAX_LIFETIME", 5*time.Minute),
+		DBConnMaxIdleTime:     parseDurationEnv("DB_CONN_MAX_IDLE_TIME", 1*time.Minute),
+		DBQueryTimeout:        parseDurationEnv("DB_QUERY_TIMEOUT", 3*time.Second),
+		EnableHTTPBodyLogging: parseBoolEnv("LOG_HTTP_BODIES", false),
+		AuthRateLimitRPS:      parseIntEnv("AUTH_RATE_LIMIT_RPS", 100),
+		AuthRateLimitBurst:    parseIntEnv("AUTH_RATE_LIMIT_BURST", 20),
+		LogLevel:              strings.TrimSpace(os.Getenv("LOG_LEVEL")),
 	}
 
 	if err := applyFlags(&cfg, os.Args[1:]); err != nil {
 		return Config{}, err
+	}
+
+	if cfg.DatabaseURI == "" {
+		cfg.DatabaseURI = "postgres://localhost:5432/postgres?sslmode=disable"
 	}
 
 	return cfg, nil
@@ -82,4 +109,43 @@ func applyFlags(cfg *Config, args []string) error {
 	}
 
 	return nil
+}
+
+func parseIntEnv(key string, defaultValue int) int {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(val)
+	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
+func parseDurationEnv(key string, defaultValue time.Duration) time.Duration {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultValue
+	}
+	seconds, err := strconv.Atoi(val)
+	if err != nil || seconds <= 0 {
+		return defaultValue
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func parseBoolEnv(key string, defaultValue bool) bool {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultValue
+	}
+	switch val {
+	case "true", "1", "yes", "on":
+		return true
+	case "false", "0", "no", "off":
+		return false
+	default:
+		return defaultValue
+	}
 }
