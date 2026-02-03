@@ -14,8 +14,6 @@ var (
 	// ErrOrderAlreadyUploadedByAnother возвращается, если номер заказа уже был загружен другим пользователем.
 	ErrOrderAlreadyUploadedByAnother = errors.New("order already uploaded by another user")
 
-	// ErrAccrualNotRegistered возвращается, когда внешний сервис начислений не знает о заказе (HTTP 204).
-	ErrAccrualNotRegistered = errors.New("accrual order not registered")
 	// ErrAccrualRateLimited возвращается при превышении лимита запросов к сервису начислений (HTTP 429).
 	ErrAccrualRateLimited = errors.New("accrual rate limited")
 )
