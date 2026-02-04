@@ -139,6 +139,13 @@ func (worker *Worker) processOrder(ctx context.Context, order ordersmodel.Order)
 			time.Sleep(worker.retryAfterMin)
 			return
 		}
+		if errors.Is(err, model.ErrTemporarilyUnavailable) {
+			log.Warn().
+				Dur("retry_after", worker.retryAfterMin).
+				Msg("accrual temporarily unavailable, pausing worker")
+			time.Sleep(worker.retryAfterMin)
+			return
+		}
 
 		log.Error().
 			Err(err).

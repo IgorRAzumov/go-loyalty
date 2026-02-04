@@ -2,11 +2,14 @@ package http
 
 import (
 	"context"
+	"errors"
 	"loyalty/internal/domain/accrual/model"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/sony/gobreaker"
 )
 
 func TestClient_GetOrderAccrual(t *testing.T) {
@@ -80,6 +83,37 @@ func TestClient_GetOrderAccrual(t *testing.T) {
 				t.Errorf("GetOrderAccrual() nil = %v, want %v", resp == nil, tt.wantNil)
 			}
 		})
+	}
+}
+
+func TestClient_CircuitBreakerOpens(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}))
+	defer server.Close()
+
+	c := NewClient(server.URL, 5*time.Second)
+	// Делаем тест детерминированным: открываем breaker после 1 ошибки.
+	c.breaker = gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name: "accrual-test",
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			return counts.ConsecutiveFailures >= 1
+		},
+		Timeout: 1 * time.Minute,
+	})
+
+	_, err := c.GetOrderAccrual(context.Background(), "123")
+	if err == nil {
+		t.Fatalf("expected error on first request")
+	}
+
+	_, err = c.GetOrderAccrual(context.Background(), "123")
+	if err == nil {
+		t.Fatalf("expected error when breaker is open")
+	}
+	if !errors.Is(err, model.ErrTemporarilyUnavailable) {
+		t.Fatalf("expected ErrTemporarilyUnavailable, got %v", err)
 	}
 }
 
