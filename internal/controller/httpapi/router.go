@@ -5,7 +5,7 @@ import (
 	"loyalty/internal/controller/httpapi/auth/middleware"
 	userbalance "loyalty/internal/controller/httpapi/balance/handler"
 	"loyalty/internal/controller/httpapi/common/middleware/gzip"
-	"loyalty/internal/controller/httpapi/common/middleware/logger"
+	httplogger "loyalty/internal/controller/httpapi/common/middleware/logger"
 	"loyalty/internal/controller/httpapi/common/middleware/ratelimit"
 	userorders "loyalty/internal/controller/httpapi/order/handler"
 	userwithdrawals "loyalty/internal/controller/httpapi/withdrawal/handler"
@@ -14,6 +14,7 @@ import (
 	balanceusecase "loyalty/internal/domain/balance/usecase"
 	ordersusecase "loyalty/internal/domain/order/usecase"
 	withdrawalsusecase "loyalty/internal/domain/withdrawal/usecase"
+	"loyalty/internal/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,6 +26,7 @@ type Deps struct {
 	BalanceUsecase     balanceusecase.BalanceUsecase
 	WithdrawalsUsecase withdrawalsusecase.WithdrawalsUsecase
 	TokenService       service.TokenService
+	Logger             logger.Logger
 
 	EnableHTTPBodyLogging bool
 
@@ -38,7 +40,7 @@ func RegisterRoutes(router *gin.Engine, deps Deps) {
 
 func InitRouter(deps Deps) *gin.Engine {
 	router := gin.New()
-	router.Use(logger.NewMiddleware(deps.EnableHTTPBodyLogging, "/api/user/register", "/api/user/login"))
+	router.Use(httplogger.NewMiddleware(deps.Logger, deps.EnableHTTPBodyLogging, "/api/user/register", "/api/user/login"))
 	router.Use(gin.Recovery())
 	registerRoutes(router, deps)
 	return router
@@ -62,7 +64,7 @@ func registerRoutes(routesEngine *gin.Engine, deps Deps) {
 }
 
 func registerAuthRoutes(api *gin.RouterGroup, deps Deps) {
-	authHandler := handler.NewAuthHandler(deps.AuthUsecase)
+	authHandler := handler.NewAuthHandler(deps.AuthUsecase, deps.Logger)
 	rateLimiter := ratelimit.NewMiddleware(deps.AuthRateLimitRPS, deps.AuthRateLimitBurst)
 	api.POST("/user/register", rateLimiter, authHandler.Register)
 	api.POST("/user/login", rateLimiter, authHandler.Login)

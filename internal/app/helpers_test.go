@@ -2,6 +2,7 @@ package app
 
 import (
 	"loyalty/internal/config"
+	"loyalty/internal/logger"
 	"testing"
 	"time"
 )
@@ -18,7 +19,7 @@ func TestLoadDependencies(t *testing.T) {
 	}
 
 	// Mock DB (nil допустимо для теста конструкторов)
-	deps, _ := loadDependencies(cfg, nil)
+	deps, _ := loadDependencies(cfg, nil, logger.NewNopLogger())
 
 	if deps.AuthUsecase == nil {
 		t.Error("loadDependencies() AuthUsecase is nil")
@@ -58,7 +59,7 @@ func TestCreateAccrualClient(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Config{AccrualSystemAddress: tt.address}
-			client := createAccrualClient(cfg)
+			client := createAccrualClient(cfg, logger.NewNopLogger())
 			if (client == nil) != tt.wantNil {
 				t.Errorf("createAccrualClient() nil = %v, want %v", client == nil, tt.wantNil)
 			}

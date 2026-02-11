@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	applogger "loyalty/internal/logger"
 )
 
 func TestNewMiddleware_WithoutBodyLogging(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	middleware := NewMiddleware(false)
+	middleware := NewMiddleware(applogger.NewNopLogger(), false)
 
 	router := gin.New()
 	router.Use(middleware)
@@ -37,7 +38,7 @@ func TestNewMiddleware_WithoutBodyLogging(t *testing.T) {
 func TestNewMiddleware_WithBodyLogging(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	middleware := NewMiddleware(true)
+	middleware := NewMiddleware(applogger.NewNopLogger(), true)
 
 	router := gin.New()
 	router.Use(middleware)
@@ -59,7 +60,7 @@ func TestNewMiddleware_WithBodyLogging(t *testing.T) {
 func TestNewMiddleware_ErrorStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	middleware := NewMiddleware(true)
+	middleware := NewMiddleware(applogger.NewNopLogger(), true)
 
 	router := gin.New()
 	router.Use(middleware)
@@ -80,7 +81,7 @@ func TestNewMiddleware_ErrorStatus(t *testing.T) {
 func TestNewMiddleware_RedactRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	middleware := NewMiddleware(true, "/api/user/register", "/api/user/login")
+	middleware := NewMiddleware(applogger.NewNopLogger(), true, "/api/user/register", "/api/user/login")
 
 	router := gin.New()
 	router.Use(middleware)
@@ -104,7 +105,8 @@ func TestWithCommonHTTPFields(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/test?query=1", nil)
 
-	event := httpLog.Info()
+	log := applogger.NewNopLogger()
+	event := log.Info()
 	result := withCommonHTTPFields(event, ctx, 200)
 
 	if result == nil {
@@ -113,7 +115,8 @@ func TestWithCommonHTTPFields(t *testing.T) {
 }
 
 func TestWithCommonHTTPFields_NilContext(t *testing.T) {
-	event := httpLog.Info()
+	log := applogger.NewNopLogger()
+	event := log.Info()
 	result := withCommonHTTPFields(event, nil, 200)
 
 	if result == nil {

@@ -2,14 +2,27 @@ package logger
 
 import "testing"
 
-func TestInitLogger_Default(t *testing.T) {
-	if err := InitLogger(""); err != nil {
+func TestNewLogger_Default(t *testing.T) {
+	log, err := NewLogger("")
+	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
+	}
+	if log == nil {
+		t.Fatal("expected non-nil logger")
 	}
 }
 
-func TestInitLogger_InvalidLevel(t *testing.T) {
-	if err := InitLogger("nope-nope"); err == nil {
+func TestNewLogger_InvalidLevel(t *testing.T) {
+	_, err := NewLogger("nope-nope")
+	if err == nil {
 		t.Fatalf("expected error")
 	}
+}
+
+func TestNewNopLogger(t *testing.T) {
+	log := NewNopLogger()
+	if log == nil {
+		t.Fatal("expected non-nil logger")
+	}
+	log.Info().String("key", "val").Message("nop")
 }

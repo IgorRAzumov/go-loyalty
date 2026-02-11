@@ -20,6 +20,7 @@ import (
 	balancemodel "loyalty/internal/domain/balance/model"
 	ordersmodel "loyalty/internal/domain/order/model"
 	withdrawalsmodel "loyalty/internal/domain/withdrawal/model"
+	"loyalty/internal/logger"
 	"loyalty/internal/mocks"
 )
 
@@ -69,6 +70,7 @@ func defaultDeps(t *testing.T, ctrl *gomock.Controller) Deps {
 		BalanceUsecase:        balance,
 		WithdrawalsUsecase:    withdrawals,
 		TokenService:          tokensvc.NewTokenService("secret", time.Hour),
+		Logger:                logger.NewNopLogger(),
 		EnableHTTPBodyLogging: false,
 		AuthRateLimitRPS:      100,
 		AuthRateLimitBurst:    20,
@@ -163,6 +165,7 @@ func TestRegisterRoutes_Register_UsesUsecase(t *testing.T) {
 		BalanceUsecase:        balance,
 		WithdrawalsUsecase:    withdrawals,
 		TokenService:          tokensvc.NewTokenService("secret", time.Hour),
+		Logger:                logger.NewNopLogger(),
 		EnableHTTPBodyLogging: false,
 		AuthRateLimitRPS:      100,
 		AuthRateLimitBurst:    20,

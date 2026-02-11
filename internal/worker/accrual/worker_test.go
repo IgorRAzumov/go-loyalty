@@ -8,6 +8,7 @@ import (
 
 	accrualmodel "loyalty/internal/domain/accrual/model"
 	ordersmodel "loyalty/internal/domain/order/model"
+	"loyalty/internal/logger"
 	"loyalty/internal/mocks"
 
 	"github.com/shopspring/decimal"
@@ -43,7 +44,7 @@ func TestWorker_processBatch(t *testing.T) {
 			svc := mocks.NewMockOrdersService(ctrl)
 			client := mocks.NewMockAccrualClient(ctrl)
 
-			w := NewWorker(repo, svc, client, DefaultConfig())
+			w := NewWorker(repo, svc, client, DefaultConfig(), logger.NewNopLogger())
 			w.processBatch(context.Background())
 		})
 	}
@@ -108,7 +109,7 @@ func TestWorker_processOrder(t *testing.T) {
 			cfg.RequestDelay = 0
 			cfg.RetryAfterMin = 10 * time.Millisecond
 
-			w := NewWorker(repo, svc, client, cfg)
+			w := NewWorker(repo, svc, client, cfg, logger.NewNopLogger())
 			w.processOrder(context.Background(), tt.order)
 		})
 	}
@@ -125,7 +126,7 @@ func TestWorker_SleepIfPaused(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.RequestDelay = 0
 	cfg.RetryAfterMin = 0
-	w := NewWorker(repo, svc, client, cfg)
+	w := NewWorker(repo, svc, client, cfg, logger.NewNopLogger())
 
 	pauseFor := 25 * time.Millisecond
 	w.extendPauseUntil(time.Now().Add(pauseFor))

@@ -4,20 +4,21 @@ import (
 	networkmodel "loyalty/internal/controller/httpapi/auth/model"
 	common "loyalty/internal/controller/httpapi/common/model"
 	"loyalty/internal/domain/auth/usecase"
+	"loyalty/internal/logger"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog/log"
 )
 
 // Handler — HTTP-хендлеры аутентификации (register/login).
 type Handler struct {
 	authUsecase usecase.AuthUsecase
+	log         logger.Logger
 }
 
 // NewAuthHandler создаёт хендлеры аутентификации (register/login).
-func NewAuthHandler(authUsecase usecase.AuthUsecase) *Handler {
-	return &Handler{authUsecase: authUsecase}
+func NewAuthHandler(authUsecase usecase.AuthUsecase, log logger.Logger) *Handler {
+	return &Handler{authUsecase: authUsecase, log: log}
 }
 
 // Register обрабатывает регистрацию пользователя: валидирует запрос и возвращает токен.
@@ -30,7 +31,7 @@ func (handler *Handler) Register(ctx *gin.Context) {
 
 	token, err := handler.authUsecase.Register(ctx.Request.Context(), request.Login, request.Password)
 	if err != nil {
-		log.Error().Err(err).Str("login", request.Login).Msg("register failed")
+		handler.log.Error().Error(err).String("login", request.Login).Message("register failed")
 		status, code := common.MapError(err)
 		common.WriteError(ctx, status, code)
 		return
@@ -50,7 +51,7 @@ func (handler *Handler) Login(ctx *gin.Context) {
 
 	token, err := handler.authUsecase.Login(ctx.Request.Context(), request.Login, request.Password)
 	if err != nil {
-		log.Error().Err(err).Str("login", request.Login).Msg("login failed")
+		handler.log.Error().Error(err).String("login", request.Login).Message("login failed")
 		status, code := common.MapError(err)
 		common.WriteError(ctx, status, code)
 		return

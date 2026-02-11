@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"loyalty/internal/adapter/postgres/util"
+	"loyalty/internal/logger"
 	"testing"
 	"time"
 )
@@ -43,7 +44,7 @@ func TestDefaultPoolConfig(t *testing.T) {
 }
 
 func TestOpen_EmptyDSN(t *testing.T) {
-	_, err := Open(context.Background(), "", DefaultPoolConfig())
+	_, err := Open(context.Background(), "", DefaultPoolConfig(), logger.NewNopLogger())
 	if err == nil {
 		t.Error("expected error for empty DSN")
 	}
@@ -52,7 +53,7 @@ func TestOpen_EmptyDSN(t *testing.T) {
 func TestOpen_InvalidDSN(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := Open(ctx, "invalid://dsn", DefaultPoolConfig())
+	_, err := Open(ctx, "invalid://dsn", DefaultPoolConfig(), logger.NewNopLogger())
 	if err == nil {
 		t.Error("expected error for invalid DSN")
 	}

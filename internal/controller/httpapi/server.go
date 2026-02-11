@@ -4,8 +4,6 @@ import (
 	"loyalty/internal/config"
 	"net/http"
 	"time"
-
-	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -29,13 +27,14 @@ func StartServer(appConfig config.Config, deps Deps) (*http.Server, <-chan error
 
 	errChannel := make(chan error, 1)
 	go func() {
+		log := deps.Logger
 		if appConfig.JWTSecret == "" {
-			log.Warn().Msg("JWT_SECRET is empty; auth tokens may be insecure")
+			log.Warn().Message("JWT_SECRET is empty; auth tokens may be insecure")
 		}
-		log.Info().Str("addr", appConfig.RunAddress).Msg("starting http server listening")
+		log.Info().String("addr", appConfig.RunAddress).Message("starting http server listening")
 
 		if err := srv.ListenAndServe(); err != nil {
-			log.Error().Err(err).Msg("http server failed")
+			log.Error().Error(err).Message("http server failed")
 			errChannel <- err
 		}
 	}()

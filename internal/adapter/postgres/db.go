@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"time"
 
+	"loyalty/internal/logger"
+
 	// Регистрируем драйвер pgx для database/sql.
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -35,7 +36,7 @@ func DefaultPoolConfig() PoolConfig {
 }
 
 // Open открывает соединение с PostgreSQL по DSN, применяет настройки pool и проверяет доступность.
-func Open(ctx context.Context, dsn string, poolCfg PoolConfig) (*sql.DB, error) {
+func Open(ctx context.Context, dsn string, poolCfg PoolConfig, log logger.Logger) (*sql.DB, error) {
 	if dsn == "" {
 		return nil, errors.New("DATABASE_URI is empty")
 	}
@@ -55,12 +56,14 @@ func Open(ctx context.Context, dsn string, poolCfg PoolConfig) (*sql.DB, error) 
 		_ = db.Close()
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
-	log.Info().
-		Int("max_open_conns", poolCfg.MaxOpenConns).
-		Int("max_idle_conns", poolCfg.MaxIdleConns).
-		Dur("conn_max_lifetime", poolCfg.ConnMaxLifetime).
-		Dur("conn_max_idle_time", poolCfg.ConnMaxIdleTime).
-		Msg("database connection pool configured")
+	if log != nil {
+		log.Info().
+			Int("max_open_conns", poolCfg.MaxOpenConns).
+			Int("max_idle_conns", poolCfg.MaxIdleConns).
+			Duration("conn_max_lifetime", poolCfg.ConnMaxLifetime).
+			Duration("conn_max_idle_time", poolCfg.ConnMaxIdleTime).
+			Message("database connection pool configured")
+	}
 	return db, nil
 }
 
@@ -69,14 +72,14 @@ func Open(ctx context.Context, dsn string, poolCfg PoolConfig) (*sql.DB, error) 
 // Важно: golang-migrate может закрывать underlying DB driver при закрытии migrate-инстанса,
 // поэтому миграции выполняются на отдельном *sql.DB, после чего соединение закрывается,
 // и для работы приложения открывается новое *sql.DB с настроенным connection pool.
-func OpenWithMigrations(ctx context.Context, dsn string, poolCfg PoolConfig) (*sql.DB, error) {
+func OpenWithMigrations(ctx context.Context, dsn string, poolCfg PoolConfig, log logger.Logger) (*sql.DB, error) {
 	migrationPoolCfg := PoolConfig{
 		MaxOpenConns:    5,
 		MaxIdleConns:    2,
 		ConnMaxLifetime: 5 * time.Minute,
 		ConnMaxIdleTime: 1 * time.Minute,
 	}
-	migrationsDB, err := Open(ctx, dsn, migrationPoolCfg)
+	migrationsDB, err := Open(ctx, dsn, migrationPoolCfg, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -86,5 +89,5 @@ func OpenWithMigrations(ctx context.Context, dsn string, poolCfg PoolConfig) (*s
 	}
 	_ = migrationsDB.Close()
 
-	return Open(ctx, dsn, poolCfg)
+	return Open(ctx, dsn, poolCfg, log)
 }

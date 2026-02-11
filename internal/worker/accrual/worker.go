@@ -8,11 +8,10 @@ import (
 	ordersmodel "loyalty/internal/domain/order/model"
 	ordersrepo "loyalty/internal/domain/order/repository"
 	orderssvc "loyalty/internal/domain/order/service"
+	"loyalty/internal/logger"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/rs/zerolog/log"
 )
 
 // Worker — фоновый воркер для обновления статусов заказов через систему accrual.
@@ -20,6 +19,7 @@ type Worker struct {
 	ordersRepo         ordersrepo.OrdersRepository
 	ordersService      orderssvc.OrdersService
 	accrualClient      client.AccrualClient
+	log                logger.Logger
 	pollInterval       time.Duration
 	maxConcurrency     int
 	queryTimeout       time.Duration
@@ -54,11 +54,13 @@ func NewWorker(
 	ordersService orderssvc.OrdersService,
 	accrualClient client.AccrualClient,
 	cfg Config,
+	log logger.Logger,
 ) *Worker {
 	return &Worker{
 		ordersRepo:     ordersRepo,
 		ordersService:  ordersService,
 		accrualClient:  accrualClient,
+		log:            log,
 		pollInterval:   cfg.PollInterval,
 		maxConcurrency: cfg.MaxConcurrency,
 		queryTimeout:   cfg.QueryTimeout,
@@ -69,10 +71,10 @@ func NewWorker(
 
 // Start запускает воркер в фоне. Блокируется до отмены ctx.
 func (worker *Worker) Start(ctx context.Context) {
-	log.Info().
-		Dur("poll_interval", worker.pollInterval).
+	worker.log.Info().
+		Duration("poll_interval", worker.pollInterval).
 		Int("max_concurrency", worker.maxConcurrency).
-		Msg("accrual worker started")
+		Message("accrual worker started")
 
 	ticker := time.NewTicker(worker.pollInterval)
 	defer ticker.Stop()
@@ -80,7 +82,7 @@ func (worker *Worker) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info().Msg("accrual worker stopped")
+			worker.log.Info().Message("accrual worker stopped")
 			return
 		case <-ticker.C:
 			worker.processBatch(ctx)
@@ -94,7 +96,7 @@ func (worker *Worker) processBatch(ctx context.Context) {
 
 	orders, err := worker.ordersRepo.ListPending(queryCtx)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to list pending orders")
+		worker.log.Error().Error(err).Message("failed to list pending orders")
 		return
 	}
 
@@ -102,7 +104,7 @@ func (worker *Worker) processBatch(ctx context.Context) {
 		return
 	}
 
-	log.Debug().Int("count", len(orders)).Msg("processing pending orders")
+	worker.log.Debug().Int("count", len(orders)).Message("processing pending orders")
 
 	ordersChan := make(chan ordersmodel.Order, len(orders))
 
@@ -146,31 +148,31 @@ func (worker *Worker) processOrder(ctx context.Context, order ordersmodel.Order)
 		if errors.Is(err, model.ErrTooManyRequests) {
 			pauseUntil := time.Now().Add(worker.retryAfterMin)
 			worker.extendPauseUntil(pauseUntil)
-			log.Warn().
-				Dur("retry_after", worker.retryAfterMin).
+			worker.log.Warn().
+				Duration("retry_after", worker.retryAfterMin).
 				Time("pause_until", pauseUntil).
-				Msg("accrual rate limit exceeded, pausing workers")
+				Message("accrual rate limit exceeded, pausing workers")
 			return
 		}
 		if errors.Is(err, model.ErrTemporarilyUnavailable) {
 			pauseUntil := time.Now().Add(worker.retryAfterMin)
 			worker.extendPauseUntil(pauseUntil)
-			log.Warn().
-				Dur("retry_after", worker.retryAfterMin).
+			worker.log.Warn().
+				Duration("retry_after", worker.retryAfterMin).
 				Time("pause_until", pauseUntil).
-				Msg("accrual temporarily unavailable, pausing workers")
+				Message("accrual temporarily unavailable, pausing workers")
 			return
 		}
 
-		log.Error().
-			Err(err).
-			Str("order", order.Number).
-			Msg("failed to get accrual for order")
+		worker.log.Error().
+			Error(err).
+			String("order", order.Number).
+			Message("failed to get accrual for order")
 		return
 	}
 
 	if accrualResp == nil {
-		log.Debug().Str("order", order.Number).Msg("order not registered in accrual system yet")
+		worker.log.Debug().String("order", order.Number).Message("order not registered in accrual system yet")
 		return
 	}
 
@@ -178,20 +180,20 @@ func (worker *Worker) processOrder(ctx context.Context, order ordersmodel.Order)
 	defer cancel()
 
 	if err := worker.ordersService.UpdateFromAccrual(updateCtx, order.Number, accrualResp.Status, accrualResp.Accrual); err != nil {
-		log.Error().
-			Err(err).
-			Str("order", order.Number).
-			Str("accrual_status", string(accrualResp.Status)).
-			Msg("failed to update order from accrual")
+		worker.log.Error().
+			Error(err).
+			String("order", order.Number).
+			String("accrual_status", string(accrualResp.Status)).
+			Message("failed to update order from accrual")
 		return
 	}
 
-	log.Info().
-		Str("order", order.Number).
-		Str("old_status", string(order.Status)).
-		Str("accrual_status", string(accrualResp.Status)).
+	worker.log.Info().
+		String("order", order.Number).
+		String("old_status", string(order.Status)).
+		String("accrual_status", string(accrualResp.Status)).
 		Interface("accrual", accrualResp.Accrual).
-		Msg("order updated from accrual")
+		Message("order updated from accrual")
 }
 
 func (worker *Worker) extendPauseUntil(until time.Time) {

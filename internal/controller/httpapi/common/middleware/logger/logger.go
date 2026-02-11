@@ -2,13 +2,10 @@ package logger
 
 import (
 	"loyalty/internal/controller/httpapi/common/middleware/routing"
-	"os"
+	applogger "loyalty/internal/logger"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog"
 )
-
-var httpLog = zerolog.New(os.Stderr)
 
 // maxLoggedBodyBytes — сколько байт тела мы максимум буферизуем для логирования на ошибках.
 // Значение < 0 означает "без лимита".
@@ -16,7 +13,7 @@ const maxLoggedBodyBytes = -1
 
 // NewMiddleware возвращает middleware для логирования HTTP-запросов.
 // Если enableBodyLogging = false, буферизация тел запросов/ответов отключена (production режим).
-func NewMiddleware(enableBodyLogging bool, redactRoutes ...string) gin.HandlerFunc {
+func NewMiddleware(log applogger.Logger, enableBodyLogging bool, redactRoutes ...string) gin.HandlerFunc {
 	rules := routing.ParsePaths(redactRoutes)
 
 	if !enableBodyLogging {
@@ -24,21 +21,21 @@ func NewMiddleware(enableBodyLogging bool, redactRoutes ...string) gin.HandlerFu
 			ctx.Next()
 
 			status := ctx.Writer.Status()
-			event := httpLog.Info()
+			event := log.Info()
 			if status >= 400 {
-				event = httpLog.Warn()
+				event = log.Warn()
 			}
 
 			withCommonHTTPFields(event, ctx, status).
 				Int("bytes", ctx.Writer.Size()).
-				Msg("http")
+				Message("http")
 		}
 	}
 
-	return withBodyLogging(rules)
+	return withBodyLogging(log, rules)
 }
 
-func withBodyLogging(rules []string) func(ctx *gin.Context) {
+func withBodyLogging(log applogger.Logger, rules []string) func(ctx *gin.Context) {
 	return func(ctx *gin.Context) {
 		loggerWriter := newWriter(ctx.Writer, maxLoggedBodyBytes)
 		ctx.Writer = loggerWriter
@@ -49,14 +46,14 @@ func withBodyLogging(rules []string) func(ctx *gin.Context) {
 		ctx.Next()
 
 		status := ctx.Writer.Status()
-		event := httpLog.Info()
+		event := log.Info()
 		if status >= 400 {
-			event = httpLog.Warn()
+			event = log.Warn()
 		}
 
 		withCommonHTTPFields(event, ctx, status).
 			Int("bytes", ctx.Writer.Size()).
-			Msg("http")
+			Message("http")
 
 		if status < 400 {
 			return
@@ -71,21 +68,21 @@ func withBodyLogging(rules []string) func(ctx *gin.Context) {
 			requestBody = []byte("<<redacted>>")
 		}
 
-		withCommonHTTPFields(httpLog.Warn(), ctx, status).
-			Str("request_body", string(requestBody)).
-			Str("response_body", string(loggerWriter.bytes())).
-			Msg("http body (error)")
+		withCommonHTTPFields(log.Warn(), ctx, status).
+			String("request_body", string(requestBody)).
+			String("response_body", string(loggerWriter.bytes())).
+			Message("http body (error)")
 	}
 }
 
-func withCommonHTTPFields(event *zerolog.Event, ctx *gin.Context, status int) *zerolog.Event {
+func withCommonHTTPFields(event applogger.Event, ctx *gin.Context, status int) applogger.Event {
 	if ctx == nil || ctx.Request == nil || ctx.Request.URL == nil {
 		return event.Int("status", status)
 	}
 	return event.
-		Str("method", ctx.Request.Method).
-		Str("path", ctx.Request.URL.Path).
-		Str("query", ctx.Request.URL.RawQuery).
-		Str("route", ctx.FullPath()).
+		String("method", ctx.Request.Method).
+		String("path", ctx.Request.URL.Path).
+		String("query", ctx.Request.URL.RawQuery).
+		String("route", ctx.FullPath()).
 		Int("status", status)
 }

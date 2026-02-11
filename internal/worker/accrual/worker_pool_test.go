@@ -8,6 +8,7 @@ import (
 
 	accrualmodel "loyalty/internal/domain/accrual/model"
 	ordersmodel "loyalty/internal/domain/order/model"
+	"loyalty/internal/logger"
 	"loyalty/internal/mocks"
 
 	"github.com/shopspring/decimal"
@@ -45,7 +46,7 @@ func TestWorkerPool_ParallelProcessing(t *testing.T) {
 	cfg.MaxConcurrency = 3
 	cfg.RequestDelay = 10 * time.Millisecond
 
-	w := NewWorker(repo, svc, client, cfg)
+	w := NewWorker(repo, svc, client, cfg, logger.NewNopLogger())
 
 	start := time.Now()
 	w.processBatch(context.Background())
@@ -86,7 +87,7 @@ func TestWorkerPool_GracefulShutdown(t *testing.T) {
 	cfg.MaxConcurrency = 5
 	cfg.RequestDelay = 1 * time.Millisecond
 
-	w := NewWorker(repo, svc, client, cfg)
+	w := NewWorker(repo, svc, client, cfg, logger.NewNopLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {

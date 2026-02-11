@@ -14,6 +14,7 @@ import (
 	networkmodel "loyalty/internal/controller/httpapi/auth/model"
 	common "loyalty/internal/controller/httpapi/common/model"
 	"loyalty/internal/domain/auth/model"
+	"loyalty/internal/logger"
 	"loyalty/internal/mocks"
 )
 
@@ -29,7 +30,7 @@ func TestHandler_Register_SetsAuth(t *testing.T) {
 		Return("token123", nil)
 	uc.EXPECT().Login(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
 
-	h := NewAuthHandler(uc)
+	h := NewAuthHandler(uc, logger.NewNopLogger())
 
 	r := gin.New()
 	r.POST("/api/user/register", h.Register)
@@ -71,7 +72,7 @@ func TestHandler_Login_UnauthorizedOnInvalidCreds(t *testing.T) {
 		Login(gomock.Any(), "alice", "longenough10").
 		Return("", model.ErrInvalidCreds)
 
-	h := NewAuthHandler(uc)
+	h := NewAuthHandler(uc, logger.NewNopLogger())
 
 	r := gin.New()
 	r.POST("/api/user/login", h.Login)
@@ -105,7 +106,7 @@ func TestHandler_Register_ConflictOnLoginTaken(t *testing.T) {
 		Return("", model.ErrLoginTaken)
 	uc.EXPECT().Login(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
 
-	h := NewAuthHandler(uc)
+	h := NewAuthHandler(uc, logger.NewNopLogger())
 
 	r := gin.New()
 	r.POST("/api/user/register", h.Register)
@@ -133,7 +134,7 @@ func TestHandler_Register_500OnUnexpected(t *testing.T) {
 		Return("", errors.New("boom"))
 	uc.EXPECT().Login(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
 
-	h := NewAuthHandler(uc)
+	h := NewAuthHandler(uc, logger.NewNopLogger())
 
 	r := gin.New()
 	r.POST("/api/user/register", h.Register)
