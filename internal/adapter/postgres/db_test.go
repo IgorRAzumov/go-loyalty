@@ -27,24 +27,8 @@ func TestPoolConfig(t *testing.T) {
 	}
 }
 
-func TestDefaultPoolConfig(t *testing.T) {
-	cfg := DefaultPoolConfig()
-	if cfg.MaxOpenConns <= 0 {
-		t.Error("MaxOpenConns should be > 0")
-	}
-	if cfg.MaxIdleConns <= 0 {
-		t.Error("MaxIdleConns should be > 0")
-	}
-	if cfg.ConnMaxLifetime <= 0 {
-		t.Error("ConnMaxLifetime should be > 0")
-	}
-	if cfg.ConnMaxIdleTime <= 0 {
-		t.Error("ConnMaxIdleTime should be > 0")
-	}
-}
-
 func TestOpen_EmptyDSN(t *testing.T) {
-	_, err := Open(context.Background(), "", DefaultPoolConfig(), logger.NewNopLogger())
+	_, err := Open(context.Background(), "", PoolConfig{MaxOpenConns: 10, MaxIdleConns: 5, ConnMaxLifetime: time.Hour, ConnMaxIdleTime: 30 * time.Minute}, logger.NewNopLogger())
 	if err == nil {
 		t.Error("expected error for empty DSN")
 	}
@@ -53,7 +37,7 @@ func TestOpen_EmptyDSN(t *testing.T) {
 func TestOpen_InvalidDSN(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := Open(ctx, "invalid://dsn", DefaultPoolConfig(), logger.NewNopLogger())
+	_, err := Open(ctx, "invalid://dsn", PoolConfig{MaxOpenConns: 10, MaxIdleConns: 5, ConnMaxLifetime: time.Hour, ConnMaxIdleTime: 30 * time.Minute}, logger.NewNopLogger())
 	if err == nil {
 		t.Error("expected error for invalid DSN")
 	}

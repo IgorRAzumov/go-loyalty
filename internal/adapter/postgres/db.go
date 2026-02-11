@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"loyalty/internal/logger"
+	"loyalty/internal/util/retry"
 
 	// Регистрируем драйвер pgx для database/sql.
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -25,16 +26,6 @@ type PoolConfig struct {
 	ConnMaxIdleTime time.Duration
 }
 
-// DefaultPoolConfig возвращает рекомендуемые настройки для production (10K RPS target).
-func DefaultPoolConfig() PoolConfig {
-	return PoolConfig{
-		MaxOpenConns:    100,
-		MaxIdleConns:    25,
-		ConnMaxLifetime: 5 * time.Minute,
-		ConnMaxIdleTime: 1 * time.Minute,
-	}
-}
-
 // Open открывает соединение с PostgreSQL по DSN, применяет настройки pool и проверяет доступность.
 func Open(ctx context.Context, dsn string, poolCfg PoolConfig, log logger.Logger) (*sql.DB, error) {
 	if dsn == "" {
@@ -50,11 +41,17 @@ func Open(ctx context.Context, dsn string, poolCfg PoolConfig, log logger.Logger
 	db.SetConnMaxLifetime(poolCfg.ConnMaxLifetime)
 	db.SetConnMaxIdleTime(poolCfg.ConnMaxIdleTime)
 
-	pingCtx, cancel := context.WithTimeout(ctx, connectTimeout)
-	defer cancel()
-	if err := db.PingContext(pingCtx); err != nil {
+	_, err = retry.Do(ctx, retry.DefaultConfig(), func() (struct{}, error) {
+		pingCtx, cancel := context.WithTimeout(ctx, connectTimeout)
+		defer cancel()
+		if pingErr := db.PingContext(pingCtx); pingErr != nil {
+			return struct{}{}, fmt.Errorf("ping db: %w", pingErr)
+		}
+		return struct{}{}, nil
+	}, retry.IsRetryableNetwork)
+	if err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("ping db: %w", err)
+		return nil, err
 	}
 	if log != nil {
 		log.Info().
