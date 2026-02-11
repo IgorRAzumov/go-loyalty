@@ -155,6 +155,25 @@ func TestWorker_processOrder(t *testing.T) {
 	}
 }
 
+func TestWorker_SleepIfPaused(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.RequestDelay = 0
+	cfg.RetryAfterMin = 0
+	w := NewWorker(&mockOrdersRepo{}, &mockOrdersService{}, &mockAccrualClient{}, cfg)
+
+	pauseFor := 25 * time.Millisecond
+	w.extendPauseUntil(time.Now().Add(pauseFor))
+
+	start := time.Now()
+	w.sleepIfPaused(context.Background())
+	elapsed := time.Since(start)
+
+	// небольшая погрешность на планировщик
+	if elapsed < pauseFor-5*time.Millisecond {
+		t.Fatalf("sleepIfPaused slept %s, want at least %s", elapsed, pauseFor)
+	}
+}
+
 func decimalPtr(v float64) *decimal.Decimal {
 	d := decimal.NewFromFloat(v)
 	return &d

@@ -75,8 +75,8 @@ func TestClient_GetOrderAccrual(t *testing.T) {
 				return
 			}
 
-			if tt.wantErrType != nil && err != tt.wantErrType {
-				t.Errorf("GetOrderAccrual() error type = %T, want %T", err, tt.wantErrType)
+			if tt.wantErrType != nil && !errors.Is(err, tt.wantErrType) {
+				t.Errorf("GetOrderAccrual() error = %v, want error %v", err, tt.wantErrType)
 			}
 
 			if (resp == nil) != tt.wantNil {
@@ -114,45 +114,5 @@ func TestClient_CircuitBreakerOpens(t *testing.T) {
 	}
 	if !errors.Is(err, model.ErrTemporarilyUnavailable) {
 		t.Fatalf("expected ErrTemporarilyUnavailable, got %v", err)
-	}
-}
-
-func TestGetRetryAfter(t *testing.T) {
-	tests := []struct {
-		name   string
-		header string
-		want   time.Duration
-	}{
-		{
-			name:   "valid seconds",
-			header: "60",
-			want:   60 * time.Second,
-		},
-		{
-			name:   "empty",
-			header: "",
-			want:   0,
-		},
-		{
-			name:   "invalid",
-			header: "abc",
-			want:   0,
-		},
-		{
-			name:   "zero",
-			header: "0",
-			want:   0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resp := &http.Response{
-				Header: http.Header{},
-			}
-			if tt.header != "" {
-				resp.Header.Set("Retry-After", tt.header)
-			}
-		})
 	}
 }

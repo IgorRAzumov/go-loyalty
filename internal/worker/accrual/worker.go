@@ -9,6 +9,7 @@ import (
 	ordersrepo "loyalty/internal/domain/order/repository"
 	orderssvc "loyalty/internal/domain/order/service"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -16,14 +17,15 @@ import (
 
 // Worker — фоновый воркер для обновления статусов заказов через систему accrual.
 type Worker struct {
-	ordersRepo     ordersrepo.OrdersRepository
-	ordersService  orderssvc.OrdersService
-	accrualClient  client.AccrualClient
-	pollInterval   time.Duration
-	maxConcurrency int
-	queryTimeout   time.Duration
-	requestDelay   time.Duration
-	retryAfterMin  time.Duration
+	ordersRepo         ordersrepo.OrdersRepository
+	ordersService      orderssvc.OrdersService
+	accrualClient      client.AccrualClient
+	pollInterval       time.Duration
+	maxConcurrency     int
+	queryTimeout       time.Duration
+	requestDelay       time.Duration
+	retryAfterMin      time.Duration
+	pauseUntilUnixNano atomic.Int64
 }
 
 // Config содержит параметры воркера.
@@ -115,6 +117,10 @@ func (worker *Worker) processBatch(ctx context.Context) {
 					return
 				}
 
+				worker.sleepIfPaused(ctx)
+				if ctx.Err() != nil {
+					return
+				}
 				time.Sleep(worker.requestDelay)
 				worker.processOrder(ctx, order)
 			}
@@ -130,20 +136,29 @@ func (worker *Worker) processBatch(ctx context.Context) {
 }
 
 func (worker *Worker) processOrder(ctx context.Context, order ordersmodel.Order) {
+	worker.sleepIfPaused(ctx)
+	if ctx.Err() != nil {
+		return
+	}
+
 	accrualResp, err := worker.accrualClient.GetOrderAccrual(ctx, order.Number)
 	if err != nil {
 		if errors.Is(err, model.ErrTooManyRequests) {
+			pauseUntil := time.Now().Add(worker.retryAfterMin)
+			worker.extendPauseUntil(pauseUntil)
 			log.Warn().
 				Dur("retry_after", worker.retryAfterMin).
-				Msg("accrual rate limit exceeded, pausing worker")
-			time.Sleep(worker.retryAfterMin)
+				Time("pause_until", pauseUntil).
+				Msg("accrual rate limit exceeded, pausing workers")
 			return
 		}
 		if errors.Is(err, model.ErrTemporarilyUnavailable) {
+			pauseUntil := time.Now().Add(worker.retryAfterMin)
+			worker.extendPauseUntil(pauseUntil)
 			log.Warn().
 				Dur("retry_after", worker.retryAfterMin).
-				Msg("accrual temporarily unavailable, pausing worker")
-			time.Sleep(worker.retryAfterMin)
+				Time("pause_until", pauseUntil).
+				Msg("accrual temporarily unavailable, pausing workers")
 			return
 		}
 
@@ -177,4 +192,34 @@ func (worker *Worker) processOrder(ctx context.Context, order ordersmodel.Order)
 		Str("accrual_status", string(accrualResp.Status)).
 		Interface("accrual", accrualResp.Accrual).
 		Msg("order updated from accrual")
+}
+
+func (worker *Worker) extendPauseUntil(until time.Time) {
+	newVal := until.UnixNano()
+	for {
+		old := worker.pauseUntilUnixNano.Load()
+		if old >= newVal {
+			return
+		}
+		if worker.pauseUntilUnixNano.CompareAndSwap(old, newVal) {
+			return
+		}
+	}
+}
+
+func (worker *Worker) sleepIfPaused(ctx context.Context) {
+	until := time.Unix(0, worker.pauseUntilUnixNano.Load())
+	if !until.After(time.Now()) {
+		return
+	}
+
+	timer := time.NewTimer(time.Until(until))
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return
+	case <-timer.C:
+		return
+	}
 }
