@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"loyalty/internal/controller/httpapi/auth/authctx"
 	"net/http"
@@ -10,32 +9,27 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
+	"go.uber.org/mock/gomock"
 
 	balancemodel "loyalty/internal/domain/balance/model"
-	balusecase "loyalty/internal/domain/balance/usecase"
+	"loyalty/internal/mocks"
 )
-
-type mockBalanceUsecase struct {
-	getFn func(ctx context.Context, userID int64) (balancemodel.Balance, error)
-}
-
-func (m *mockBalanceUsecase) GetBalance(ctx context.Context, userID int64) (balancemodel.Balance, error) {
-	return m.getFn(ctx, userID)
-}
-
-var _ balusecase.BalanceUsecase = (*mockBalanceUsecase)(nil)
 
 func TestHandler_Get_200(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	h := NewHandler(&mockBalanceUsecase{
-		getFn: func(context.Context, int64) (balancemodel.Balance, error) {
-			return balancemodel.Balance{
-				Current:   decimal.RequireFromString("10.5"),
-				Withdrawn: decimal.RequireFromString("2"),
-			}, nil
-		},
-	})
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	uc := mocks.NewMockBalanceUsecase(ctrl)
+	uc.EXPECT().
+		GetBalance(gomock.Any(), int64(1)).
+		Return(balancemodel.Balance{
+			Current:   decimal.RequireFromString("10.5"),
+			Withdrawn: decimal.RequireFromString("2"),
+		}, nil)
+
+	h := NewHandler(uc)
 
 	r := gin.New()
 	r.GET("/api/user/balance", h.Get)
@@ -56,11 +50,15 @@ func TestHandler_Get_200(t *testing.T) {
 func TestHandler_Get_500OnUnexpected(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	h := NewHandler(&mockBalanceUsecase{
-		getFn: func(context.Context, int64) (balancemodel.Balance, error) {
-			return balancemodel.Balance{}, errors.New("boom")
-		},
-	})
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	uc := mocks.NewMockBalanceUsecase(ctrl)
+	uc.EXPECT().
+		GetBalance(gomock.Any(), int64(1)).
+		Return(balancemodel.Balance{}, errors.New("boom"))
+
+	h := NewHandler(uc)
 
 	r := gin.New()
 	r.GET("/api/user/balance", h.Get)

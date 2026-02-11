@@ -2,15 +2,20 @@ package httpapi
 
 import (
 	"context"
-	tokensvc "loyalty/internal/adapter/token/jwt"
 	"net/http"
 	"testing"
 	"time"
 
+	tokensvc "loyalty/internal/adapter/token/jwt"
 	"loyalty/internal/config"
+
+	"go.uber.org/mock/gomock"
 )
 
 func TestStartServer_Shutdown(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	cfg := config.Config{
 		RunAddress: ":0",
 		JWTSecret:  "secret",
@@ -18,16 +23,10 @@ func TestStartServer_Shutdown(t *testing.T) {
 	}
 
 	svc := tokensvc.NewTokenService("secret", time.Hour)
-	srv, errCh := StartServer(cfg, Deps{
-		AuthUsecase: &mockAuthUsecase{
-			registerFn: func(context.Context, string, string) (string, error) { return "", nil },
-			loginFn:    func(context.Context, string, string) (string, error) { return "", nil },
-		},
-		OrdersUsecase:      &mockOrdersUsecase{},
-		BalanceUsecase:     &mockBalanceUsecase{},
-		WithdrawalsUsecase: &mockWithdrawalsUsecase{},
-		TokenService:       svc,
-	})
+	deps := defaultDeps(t, ctrl)
+	deps.TokenService = svc
+
+	srv, errCh := StartServer(cfg, deps)
 	if srv == nil || errCh == nil {
 		t.Fatalf("expected server and channel")
 	}

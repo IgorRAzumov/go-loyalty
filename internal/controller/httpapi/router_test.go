@@ -3,7 +3,6 @@ package httpapi
 import (
 	"bytes"
 	"compress/gzip"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,71 +14,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
+	"go.uber.org/mock/gomock"
 
 	networkmodel "loyalty/internal/controller/httpapi/auth/model"
 	balancemodel "loyalty/internal/domain/balance/model"
 	ordersmodel "loyalty/internal/domain/order/model"
 	withdrawalsmodel "loyalty/internal/domain/withdrawal/model"
+	"loyalty/internal/mocks"
 )
 
-type mockAuthUsecase struct {
-	registerFn func(ctx context.Context, login, password string) (string, error)
-	loginFn    func(ctx context.Context, login, password string) (string, error)
-}
-
-func (m *mockAuthUsecase) Register(ctx context.Context, login, password string) (string, error) {
-	return m.registerFn(ctx, login, password)
-}
-func (m *mockAuthUsecase) Login(ctx context.Context, login, password string) (string, error) {
-	return m.loginFn(ctx, login, password)
-}
-
-type mockOrdersUsecase struct{}
-
-func (m *mockOrdersUsecase) UploadOrder(context.Context, int64, string) error { return nil }
-func (m *mockOrdersUsecase) LoadOrders(context.Context, int64) ([]ordersmodel.Order, error) {
-	return nil, nil
-}
-
-type mockOrdersUsecaseWithOrders struct {
-	orders []ordersmodel.Order
-}
-
-func (m *mockOrdersUsecaseWithOrders) UploadOrder(context.Context, int64, string) error { return nil }
-func (m *mockOrdersUsecaseWithOrders) LoadOrders(context.Context, int64) ([]ordersmodel.Order, error) {
-	return m.orders, nil
-}
-
-type mockBalanceUsecase struct{}
-
-func (m *mockBalanceUsecase) GetBalance(context.Context, int64) (balancemodel.Balance, error) {
-	return balancemodel.Balance{Current: decimal.Zero, Withdrawn: decimal.Zero}, nil
-}
-
-type mockWithdrawalsUsecase struct{}
-
-func (m *mockWithdrawalsUsecase) Withdraw(context.Context, int64, string, decimal.Decimal) error {
-	return nil
-}
-func (m *mockWithdrawalsUsecase) ListWithdrawals(context.Context, int64) ([]withdrawalsmodel.Withdrawal, error) {
-	return nil, nil
-}
-
-type mockWithdrawalsUsecaseWithItems struct {
-	items []withdrawalsmodel.Withdrawal
-}
-
-func (m *mockWithdrawalsUsecaseWithItems) Withdraw(context.Context, int64, string, decimal.Decimal) error {
-	return nil
-}
-func (m *mockWithdrawalsUsecaseWithItems) ListWithdrawals(context.Context, int64) ([]withdrawalsmodel.Withdrawal, error) {
-	return m.items, nil
-}
-
-func mustIssueToken(t *testing.T) (svc *tokensvc.Service, token string) {
+func mustIssueToken(t *testing.T) (*tokensvc.Service, string) {
 	t.Helper()
-
-	svc = tokensvc.NewTokenService("secret", time.Hour)
+	svc := tokensvc.NewTokenService("secret", time.Hour)
 	tok, err := svc.IssueToken(1, "alice", time.Now())
 	if err != nil {
 		t.Fatalf("issue token: %v", err)
@@ -101,22 +47,41 @@ func mustGunzip(t *testing.T, b []byte) []byte {
 	return out
 }
 
-func TestRegisterRoutes_Health(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	RegisterRoutes(r, Deps{
-		AuthUsecase: &mockAuthUsecase{
-			registerFn: func(context.Context, string, string) (string, error) { return "", nil },
-			loginFn:    func(context.Context, string, string) (string, error) { return "", nil },
-		},
-		OrdersUsecase:         &mockOrdersUsecase{},
-		BalanceUsecase:        &mockBalanceUsecase{},
-		WithdrawalsUsecase:    &mockWithdrawalsUsecase{},
+func defaultDeps(t *testing.T, ctrl *gomock.Controller) Deps {
+	auth := mocks.NewMockAuthUsecase(ctrl)
+	auth.EXPECT().Register(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return("", nil)
+	auth.EXPECT().Login(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return("", nil)
+
+	orders := mocks.NewMockOrdersUsecase(ctrl)
+	orders.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+	orders.EXPECT().LoadOrders(gomock.Any(), gomock.Any()).AnyTimes().Return(nil, nil)
+
+	balance := mocks.NewMockBalanceUsecase(ctrl)
+	balance.EXPECT().GetBalance(gomock.Any(), gomock.Any()).AnyTimes().Return(balancemodel.Balance{Current: decimal.Zero, Withdrawn: decimal.Zero}, nil)
+
+	withdrawals := mocks.NewMockWithdrawalsUsecase(ctrl)
+	withdrawals.EXPECT().Withdraw(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+	withdrawals.EXPECT().ListWithdrawals(gomock.Any(), gomock.Any()).AnyTimes().Return(nil, nil)
+
+	return Deps{
+		AuthUsecase:           auth,
+		OrdersUsecase:         orders,
+		BalanceUsecase:        balance,
+		WithdrawalsUsecase:    withdrawals,
 		TokenService:          tokensvc.NewTokenService("secret", time.Hour),
 		EnableHTTPBodyLogging: false,
 		AuthRateLimitRPS:      100,
 		AuthRateLimitBurst:    20,
-	})
+	}
+}
+
+func TestRegisterRoutes_Health(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	r := gin.New()
+	RegisterRoutes(r, defaultDeps(t, ctrl))
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
@@ -129,20 +94,11 @@ func TestRegisterRoutes_Health(t *testing.T) {
 
 func TestRegisterRoutes_UserBalance_UnauthorizedWithoutToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	r := gin.New()
-	RegisterRoutes(r, Deps{
-		AuthUsecase: &mockAuthUsecase{
-			registerFn: func(context.Context, string, string) (string, error) { return "", nil },
-			loginFn:    func(context.Context, string, string) (string, error) { return "", nil },
-		},
-		OrdersUsecase:         &mockOrdersUsecase{},
-		BalanceUsecase:        &mockBalanceUsecase{},
-		WithdrawalsUsecase:    &mockWithdrawalsUsecase{},
-		TokenService:          tokensvc.NewTokenService("secret", time.Hour),
-		EnableHTTPBodyLogging: false,
-		AuthRateLimitRPS:      100,
-		AuthRateLimitBurst:    20,
-	})
+	RegisterRoutes(r, defaultDeps(t, ctrl))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/user/balance", nil)
 	w := httptest.NewRecorder()
@@ -155,26 +111,15 @@ func TestRegisterRoutes_UserBalance_UnauthorizedWithoutToken(t *testing.T) {
 
 func TestRegisterRoutes_UserBalance_OKWithToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := tokensvc.NewTokenService("secret", time.Hour)
-	tok, err := svc.IssueToken(1, "alice", time.Now())
-	if err != nil {
-		t.Fatalf("issue token: %v", err)
-	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	svc, tok := mustIssueToken(t)
+	deps := defaultDeps(t, ctrl)
+	deps.TokenService = svc
 
 	r := gin.New()
-	RegisterRoutes(r, Deps{
-		AuthUsecase: &mockAuthUsecase{
-			registerFn: func(context.Context, string, string) (string, error) { return "", nil },
-			loginFn:    func(context.Context, string, string) (string, error) { return "", nil },
-		},
-		OrdersUsecase:         &mockOrdersUsecase{},
-		BalanceUsecase:        &mockBalanceUsecase{},
-		WithdrawalsUsecase:    &mockWithdrawalsUsecase{},
-		TokenService:          svc,
-		EnableHTTPBodyLogging: false,
-		AuthRateLimitRPS:      100,
-		AuthRateLimitBurst:    20,
-	})
+	RegisterRoutes(r, deps)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/user/balance", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -193,19 +138,30 @@ func TestRegisterRoutes_UserBalance_OKWithToken(t *testing.T) {
 
 func TestRegisterRoutes_Register_UsesUsecase(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	called := false
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	auth := mocks.NewMockAuthUsecase(ctrl)
+	auth.EXPECT().Register(gomock.Any(), "alice", "longenough10").Return("tok", nil)
+	auth.EXPECT().Login(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+
+	orders := mocks.NewMockOrdersUsecase(ctrl)
+	orders.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+	orders.EXPECT().LoadOrders(gomock.Any(), gomock.Any()).AnyTimes().Return(nil, nil)
+
+	balance := mocks.NewMockBalanceUsecase(ctrl)
+	balance.EXPECT().GetBalance(gomock.Any(), gomock.Any()).AnyTimes().Return(balancemodel.Balance{}, nil)
+
+	withdrawals := mocks.NewMockWithdrawalsUsecase(ctrl)
+	withdrawals.EXPECT().Withdraw(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+	withdrawals.EXPECT().ListWithdrawals(gomock.Any(), gomock.Any()).AnyTimes().Return(nil, nil)
+
 	r := gin.New()
 	RegisterRoutes(r, Deps{
-		AuthUsecase: &mockAuthUsecase{
-			registerFn: func(context.Context, string, string) (string, error) {
-				called = true
-				return "tok", nil
-			},
-			loginFn: func(context.Context, string, string) (string, error) { return "", nil },
-		},
-		OrdersUsecase:         &mockOrdersUsecase{},
-		BalanceUsecase:        &mockBalanceUsecase{},
-		WithdrawalsUsecase:    &mockWithdrawalsUsecase{},
+		AuthUsecase:           auth,
+		OrdersUsecase:         orders,
+		BalanceUsecase:        balance,
+		WithdrawalsUsecase:    withdrawals,
 		TokenService:          tokensvc.NewTokenService("secret", time.Hour),
 		EnableHTTPBodyLogging: false,
 		AuthRateLimitRPS:      100,
@@ -221,27 +177,15 @@ func TestRegisterRoutes_Register_UsesUsecase(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("want %d, got %d", http.StatusOK, w.Code)
 	}
-	if !called {
-		t.Fatalf("expected usecase to be called")
-	}
 }
 
 func TestRegisterRoutes_UserOrders_UnauthorizedWithoutToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	r := gin.New()
-	RegisterRoutes(r, Deps{
-		AuthUsecase: &mockAuthUsecase{
-			registerFn: func(context.Context, string, string) (string, error) { return "", nil },
-			loginFn:    func(context.Context, string, string) (string, error) { return "", nil },
-		},
-		OrdersUsecase:         &mockOrdersUsecase{},
-		BalanceUsecase:        &mockBalanceUsecase{},
-		WithdrawalsUsecase:    &mockWithdrawalsUsecase{},
-		TokenService:          tokensvc.NewTokenService("secret", time.Hour),
-		EnableHTTPBodyLogging: false,
-		AuthRateLimitRPS:      100,
-		AuthRateLimitBurst:    20,
-	})
+	RegisterRoutes(r, defaultDeps(t, ctrl))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/user/orders", bytes.NewBufferString("79927398713"))
 	req.Header.Set("Content-Type", "text/plain")
@@ -255,20 +199,11 @@ func TestRegisterRoutes_UserOrders_UnauthorizedWithoutToken(t *testing.T) {
 
 func TestRegisterRoutes_UserWithdrawals_UnauthorizedWithoutToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	r := gin.New()
-	RegisterRoutes(r, Deps{
-		AuthUsecase: &mockAuthUsecase{
-			registerFn: func(context.Context, string, string) (string, error) { return "", nil },
-			loginFn:    func(context.Context, string, string) (string, error) { return "", nil },
-		},
-		OrdersUsecase:         &mockOrdersUsecase{},
-		BalanceUsecase:        &mockBalanceUsecase{},
-		WithdrawalsUsecase:    &mockWithdrawalsUsecase{},
-		TokenService:          tokensvc.NewTokenService("secret", time.Hour),
-		EnableHTTPBodyLogging: false,
-		AuthRateLimitRPS:      100,
-		AuthRateLimitBurst:    20,
-	})
+	RegisterRoutes(r, defaultDeps(t, ctrl))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
 	w := httptest.NewRecorder()
@@ -281,6 +216,9 @@ func TestRegisterRoutes_UserWithdrawals_UnauthorizedWithoutToken(t *testing.T) {
 
 func TestRegisterRoutes_UserOrders_GzipWhenAcceptedAndLarge(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	svc, tok := mustIssueToken(t)
 
 	orders := make([]ordersmodel.Order, 0, 200)
@@ -296,20 +234,16 @@ func TestRegisterRoutes_UserOrders_GzipWhenAcceptedAndLarge(t *testing.T) {
 		})
 	}
 
+	ordersUC := mocks.NewMockOrdersUsecase(ctrl)
+	ordersUC.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+	ordersUC.EXPECT().LoadOrders(gomock.Any(), int64(1)).Return(orders, nil)
+
+	deps := defaultDeps(t, ctrl)
+	deps.OrdersUsecase = ordersUC
+	deps.TokenService = svc
+
 	r := gin.New()
-	RegisterRoutes(r, Deps{
-		AuthUsecase: &mockAuthUsecase{
-			registerFn: func(context.Context, string, string) (string, error) { return "", nil },
-			loginFn:    func(context.Context, string, string) (string, error) { return "", nil },
-		},
-		OrdersUsecase:         &mockOrdersUsecaseWithOrders{orders: orders},
-		BalanceUsecase:        &mockBalanceUsecase{},
-		WithdrawalsUsecase:    &mockWithdrawalsUsecase{},
-		TokenService:          svc,
-		EnableHTTPBodyLogging: false,
-		AuthRateLimitRPS:      100,
-		AuthRateLimitBurst:    20,
-	})
+	RegisterRoutes(r, deps)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/user/orders", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -339,33 +273,26 @@ func TestRegisterRoutes_UserOrders_GzipWhenAcceptedAndLarge(t *testing.T) {
 
 func TestRegisterRoutes_UserOrders_NoGzipWhenSmall(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	svc, tok := mustIssueToken(t)
 
 	acc := decimal.NewFromInt(1)
 	orders := []ordersmodel.Order{
-		{
-			Number:     "79927398713",
-			UserID:     1,
-			Status:     ordersmodel.StatusNew,
-			Accrual:    &acc,
-			UploadedAt: time.Now(),
-		},
+		{Number: "79927398713", UserID: 1, Status: ordersmodel.StatusNew, Accrual: &acc, UploadedAt: time.Now()},
 	}
 
+	ordersUC := mocks.NewMockOrdersUsecase(ctrl)
+	ordersUC.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+	ordersUC.EXPECT().LoadOrders(gomock.Any(), int64(1)).Return(orders, nil)
+
+	deps := defaultDeps(t, ctrl)
+	deps.OrdersUsecase = ordersUC
+	deps.TokenService = svc
+
 	r := gin.New()
-	RegisterRoutes(r, Deps{
-		AuthUsecase: &mockAuthUsecase{
-			registerFn: func(context.Context, string, string) (string, error) { return "", nil },
-			loginFn:    func(context.Context, string, string) (string, error) { return "", nil },
-		},
-		OrdersUsecase:         &mockOrdersUsecaseWithOrders{orders: orders},
-		BalanceUsecase:        &mockBalanceUsecase{},
-		WithdrawalsUsecase:    &mockWithdrawalsUsecase{},
-		TokenService:          svc,
-		EnableHTTPBodyLogging: false,
-		AuthRateLimitRPS:      100,
-		AuthRateLimitBurst:    20,
-	})
+	RegisterRoutes(r, deps)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/user/orders", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -390,6 +317,9 @@ func TestRegisterRoutes_UserOrders_NoGzipWhenSmall(t *testing.T) {
 
 func TestRegisterRoutes_UserWithdrawals_GzipWhenAcceptedAndLarge(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	svc, tok := mustIssueToken(t)
 
 	items := make([]withdrawalsmodel.Withdrawal, 0, 200)
@@ -403,20 +333,16 @@ func TestRegisterRoutes_UserWithdrawals_GzipWhenAcceptedAndLarge(t *testing.T) {
 		})
 	}
 
+	withdrawalsUC := mocks.NewMockWithdrawalsUsecase(ctrl)
+	withdrawalsUC.EXPECT().Withdraw(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+	withdrawalsUC.EXPECT().ListWithdrawals(gomock.Any(), int64(1)).Return(items, nil)
+
+	deps := defaultDeps(t, ctrl)
+	deps.WithdrawalsUsecase = withdrawalsUC
+	deps.TokenService = svc
+
 	r := gin.New()
-	RegisterRoutes(r, Deps{
-		AuthUsecase: &mockAuthUsecase{
-			registerFn: func(context.Context, string, string) (string, error) { return "", nil },
-			loginFn:    func(context.Context, string, string) (string, error) { return "", nil },
-		},
-		OrdersUsecase:         &mockOrdersUsecase{},
-		BalanceUsecase:        &mockBalanceUsecase{},
-		WithdrawalsUsecase:    &mockWithdrawalsUsecaseWithItems{items: items},
-		TokenService:          svc,
-		EnableHTTPBodyLogging: false,
-		AuthRateLimitRPS:      100,
-		AuthRateLimitBurst:    20,
-	})
+	RegisterRoutes(r, deps)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)

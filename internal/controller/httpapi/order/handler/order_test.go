@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"loyalty/internal/controller/httpapi/auth/authctx"
 	"net/http"
@@ -12,33 +11,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
+	"go.uber.org/mock/gomock"
 
 	ordersmodel "loyalty/internal/domain/order/model"
-	ordersusecase "loyalty/internal/domain/order/usecase"
+	"loyalty/internal/mocks"
 )
-
-type mockOrdersUsecase struct {
-	uploadFn func(ctx context.Context, userID int64, number string) error
-	listFn   func(ctx context.Context, userID int64) ([]ordersmodel.Order, error)
-}
-
-func (m *mockOrdersUsecase) UploadOrder(ctx context.Context, userID int64, number string) error {
-	return m.uploadFn(ctx, userID, number)
-}
-func (m *mockOrdersUsecase) LoadOrders(ctx context.Context, userID int64) ([]ordersmodel.Order, error) {
-	return m.listFn(ctx, userID)
-}
-
-var _ ordersusecase.OrdersUsecase = (*mockOrdersUsecase)(nil)
 
 func TestHandler_UploadOrder_202OnNew(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockOrdersUsecase{
-		uploadFn: func(context.Context, int64, string) error { return nil },
-		listFn:   func(context.Context, int64) ([]ordersmodel.Order, error) { panic("not used") },
-	})
+	uc := mocks.NewMockOrdersUsecase(ctrl)
+	uc.EXPECT().UploadOrder(gomock.Any(), int64(1), "79927398713").Return(nil)
+	uc.EXPECT().LoadOrders(gomock.Any(), gomock.Any()).MaxTimes(0)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.POST("/api/user/orders", h.UploadOrder)
 
@@ -55,12 +43,14 @@ func TestHandler_UploadOrder_202OnNew(t *testing.T) {
 
 func TestHandler_UploadOrder_200OnAlreadyUploaded(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockOrdersUsecase{
-		uploadFn: func(context.Context, int64, string) error { return ordersmodel.ErrOrderAlreadyUploaded },
-		listFn:   func(context.Context, int64) ([]ordersmodel.Order, error) { panic("not used") },
-	})
+	uc := mocks.NewMockOrdersUsecase(ctrl)
+	uc.EXPECT().UploadOrder(gomock.Any(), int64(1), "79927398713").Return(ordersmodel.ErrOrderAlreadyUploaded)
+	uc.EXPECT().LoadOrders(gomock.Any(), gomock.Any()).MaxTimes(0)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.POST("/api/user/orders", h.UploadOrder)
 
@@ -77,12 +67,14 @@ func TestHandler_UploadOrder_200OnAlreadyUploaded(t *testing.T) {
 
 func TestHandler_UploadOrder_409OnAlreadyUploadedByAnother(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockOrdersUsecase{
-		uploadFn: func(context.Context, int64, string) error { return ordersmodel.ErrOrderAlreadyUploadedByAnother },
-		listFn:   func(context.Context, int64) ([]ordersmodel.Order, error) { panic("not used") },
-	})
+	uc := mocks.NewMockOrdersUsecase(ctrl)
+	uc.EXPECT().UploadOrder(gomock.Any(), int64(1), "79927398713").Return(ordersmodel.ErrOrderAlreadyUploadedByAnother)
+	uc.EXPECT().LoadOrders(gomock.Any(), gomock.Any()).MaxTimes(0)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.POST("/api/user/orders", h.UploadOrder)
 
@@ -99,12 +91,14 @@ func TestHandler_UploadOrder_409OnAlreadyUploadedByAnother(t *testing.T) {
 
 func TestHandler_UploadOrder_422OnInvalidOrderNumber(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockOrdersUsecase{
-		uploadFn: func(context.Context, int64, string) error { return ordersmodel.ErrInvalidOrderNumber },
-		listFn:   func(context.Context, int64) ([]ordersmodel.Order, error) { panic("not used") },
-	})
+	uc := mocks.NewMockOrdersUsecase(ctrl)
+	uc.EXPECT().UploadOrder(gomock.Any(), int64(1), "abc").Return(ordersmodel.ErrInvalidOrderNumber)
+	uc.EXPECT().LoadOrders(gomock.Any(), gomock.Any()).MaxTimes(0)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.POST("/api/user/orders", h.UploadOrder)
 
@@ -121,12 +115,14 @@ func TestHandler_UploadOrder_422OnInvalidOrderNumber(t *testing.T) {
 
 func TestHandler_UploadOrder_400OnEmptyBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockOrdersUsecase{
-		uploadFn: func(context.Context, int64, string) error { panic("not used") },
-		listFn:   func(context.Context, int64) ([]ordersmodel.Order, error) { panic("not used") },
-	})
+	uc := mocks.NewMockOrdersUsecase(ctrl)
+	uc.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+	uc.EXPECT().LoadOrders(gomock.Any(), gomock.Any()).MaxTimes(0)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.POST("/api/user/orders", h.UploadOrder)
 
@@ -143,12 +139,14 @@ func TestHandler_UploadOrder_400OnEmptyBody(t *testing.T) {
 
 func TestHandler_ListOrders_204OnEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockOrdersUsecase{
-		uploadFn: func(context.Context, int64, string) error { panic("not used") },
-		listFn:   func(context.Context, int64) ([]ordersmodel.Order, error) { return nil, nil },
-	})
+	uc := mocks.NewMockOrdersUsecase(ctrl)
+	uc.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+	uc.EXPECT().LoadOrders(gomock.Any(), int64(1)).Return(nil, nil)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.GET("/api/user/orders", h.ListOrders)
 
@@ -164,19 +162,19 @@ func TestHandler_ListOrders_204OnEmpty(t *testing.T) {
 
 func TestHandler_ListOrders_200WithItems(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
 	now := time.Date(2026, 1, 28, 12, 0, 0, 0, time.UTC)
 	accrual := decimal.RequireFromString("10.5")
 
-	h := NewHandler(&mockOrdersUsecase{
-		uploadFn: func(context.Context, int64, string) error { panic("not used") },
-		listFn: func(context.Context, int64) ([]ordersmodel.Order, error) {
-			return []ordersmodel.Order{
-				{Number: "79927398713", Status: ordersmodel.StatusNew, Accrual: &accrual, UploadedAt: now},
-			}, nil
-		},
-	})
+	uc := mocks.NewMockOrdersUsecase(ctrl)
+	uc.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+	uc.EXPECT().LoadOrders(gomock.Any(), int64(1)).Return([]ordersmodel.Order{
+		{Number: "79927398713", Status: ordersmodel.StatusNew, Accrual: &accrual, UploadedAt: now},
+	}, nil)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.GET("/api/user/orders", h.ListOrders)
 
@@ -204,12 +202,14 @@ func TestHandler_ListOrders_200WithItems(t *testing.T) {
 
 func TestHandler_ListOrders_500OnUnexpectedError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockOrdersUsecase{
-		uploadFn: func(context.Context, int64, string) error { panic("not used") },
-		listFn:   func(context.Context, int64) ([]ordersmodel.Order, error) { return nil, errors.New("boom") },
-	})
+	uc := mocks.NewMockOrdersUsecase(ctrl)
+	uc.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+	uc.EXPECT().LoadOrders(gomock.Any(), int64(1)).Return(nil, errors.New("boom"))
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.GET("/api/user/orders", h.ListOrders)
 

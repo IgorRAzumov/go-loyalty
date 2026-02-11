@@ -7,64 +7,33 @@ import (
 	"time"
 
 	"loyalty/internal/domain/withdrawal/model"
+	"loyalty/internal/mocks"
 
 	"github.com/shopspring/decimal"
+	"go.uber.org/mock/gomock"
 )
 
-type mockAccountRepo struct {
-	withdrawn bool
-	gotUserID int64
-	gotOrder  string
-	gotSum    decimal.Decimal
-	gotTime   time.Time
-	err       error
-}
-
-func (m *mockAccountRepo) GetBalance(context.Context, int64) (decimal.Decimal, error) {
-	return decimal.Zero, nil
-}
-
-func (m *mockAccountRepo) Withdraw(ctx context.Context, userID int64, orderNumber string, sum decimal.Decimal, processedAt time.Time) error {
-	m.withdrawn = true
-	m.gotUserID = userID
-	m.gotOrder = orderNumber
-	m.gotSum = sum
-	m.gotTime = processedAt
-	return m.err
-}
-
-type mockWithdrawalsRepo struct {
-	called bool
-}
-
-func (m *mockWithdrawalsRepo) ListByUser(context.Context, int64) ([]model.Withdrawal, error) {
-	m.called = true
-	return []model.Withdrawal{}, nil
-}
-
 func TestService_Withdraw_CallsRepoWithValidSum(t *testing.T) {
-	accRepo := &mockAccountRepo{}
-	wdRepo := &mockWithdrawalsRepo{}
-	svc := NewService(accRepo, wdRepo)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
 	sum := decimal.NewFromFloat(123.45)
+	accRepo := mocks.NewMockAccountRepository(ctrl)
+	accRepo.EXPECT().
+		Withdraw(gomock.Any(), int64(10), "79927398713", sum, gomock.Any()).
+		DoAndReturn(func(ctx context.Context, userID int64, order string, s decimal.Decimal, now time.Time) error {
+			if now.IsZero() {
+				t.Fatal("expected time.Now to be passed")
+			}
+			return nil
+		})
+
+	wdRepo := mocks.NewMockWithdrawalsRepository(ctrl)
+	wdRepo.EXPECT().ListByUser(gomock.Any(), gomock.Any()).MaxTimes(0)
+
+	svc := NewService(accRepo, wdRepo)
 	if err := svc.Withdraw(context.Background(), 10, "79927398713", sum); err != nil {
 		t.Fatalf("unexpected err: %v", err)
-	}
-	if !accRepo.withdrawn {
-		t.Fatalf("expected accountRepository.Withdraw to be called")
-	}
-	if accRepo.gotUserID != 10 {
-		t.Fatalf("want userID %d, got %d", 10, accRepo.gotUserID)
-	}
-	if accRepo.gotOrder != "79927398713" {
-		t.Fatalf("want order %q, got %q", "79927398713", accRepo.gotOrder)
-	}
-	if !accRepo.gotSum.Equal(sum) {
-		t.Fatalf("want sum %v, got %v", sum, accRepo.gotSum)
-	}
-	if accRepo.gotTime.IsZero() {
-		t.Fatalf("expected time.Now to be passed")
 	}
 }
 
@@ -79,25 +48,34 @@ func TestService_Withdraw_InvalidSum_ReturnsErrInvalidWithdrawSum(t *testing.T) 
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			accRepo := &mockAccountRepo{}
-			wdRepo := &mockWithdrawalsRepo{}
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			accRepo := mocks.NewMockAccountRepository(ctrl)
+			accRepo.EXPECT().Withdraw(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+
+			wdRepo := mocks.NewMockWithdrawalsRepository(ctrl)
 			svc := NewService(accRepo, wdRepo)
 
 			err := svc.Withdraw(context.Background(), 10, "79927398713", tt.sum)
 			if err == nil || !errors.Is(err, model.ErrInvalidWithdrawSum) {
 				t.Fatalf("want %v, got %v", model.ErrInvalidWithdrawSum, err)
 			}
-			if accRepo.withdrawn {
-				t.Fatalf("did not expect accountRepository.Withdraw to be called")
-			}
 		})
 	}
 }
 
 func TestService_Withdraw_PropagatesRepoError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	repoErr := model.ErrInsufficientFunds
-	accRepo := &mockAccountRepo{err: repoErr}
-	wdRepo := &mockWithdrawalsRepo{}
+	accRepo := mocks.NewMockAccountRepository(ctrl)
+	accRepo.EXPECT().
+		Withdraw(gomock.Any(), int64(10), "79927398713", decimal.NewFromInt(100), gomock.Any()).
+		Return(repoErr)
+
+	wdRepo := mocks.NewMockWithdrawalsRepository(ctrl)
 	svc := NewService(accRepo, wdRepo)
 
 	err := svc.Withdraw(context.Background(), 10, "79927398713", decimal.NewFromInt(100))
@@ -107,16 +85,21 @@ func TestService_Withdraw_PropagatesRepoError(t *testing.T) {
 }
 
 func TestService_ListWithdrawals_DelegatesToRepo(t *testing.T) {
-	accRepo := &mockAccountRepo{}
-	wdRepo := &mockWithdrawalsRepo{}
-	svc := NewService(accRepo, wdRepo)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
+	accRepo := mocks.NewMockAccountRepository(ctrl)
+	accRepo.EXPECT().Withdraw(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+
+	wdRepo := mocks.NewMockWithdrawalsRepository(ctrl)
+	wdRepo.EXPECT().
+		ListByUser(gomock.Any(), int64(10)).
+		Return([]model.Withdrawal{}, nil)
+
+	svc := NewService(accRepo, wdRepo)
 	result, err := svc.ListWithdrawals(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
-	}
-	if !wdRepo.called {
-		t.Fatalf("expected withdrawalsRepository.ListByUser to be called")
 	}
 	if result == nil {
 		t.Fatalf("expected non-nil result")

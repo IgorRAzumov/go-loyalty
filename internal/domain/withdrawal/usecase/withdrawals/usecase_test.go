@@ -7,71 +7,61 @@ import (
 
 	ordersmodel "loyalty/internal/domain/order/model"
 	withdrawalsmodel "loyalty/internal/domain/withdrawal/model"
+	"loyalty/internal/mocks"
 
 	"github.com/shopspring/decimal"
+	"go.uber.org/mock/gomock"
 )
-
-type mockWithdrawalsService struct {
-	withdrawErr error
-	withdrawals []withdrawalsmodel.Withdrawal
-	listErr     error
-}
-
-func (m *mockWithdrawalsService) Withdraw(ctx context.Context, userID int64, orderNumber string, sum decimal.Decimal) error {
-	return m.withdrawErr
-}
-
-func (m *mockWithdrawalsService) ListWithdrawals(ctx context.Context, userID int64) ([]withdrawalsmodel.Withdrawal, error) {
-	if m.listErr != nil {
-		return nil, m.listErr
-	}
-	return m.withdrawals, nil
-}
-
-type mockOrderNumberValidator struct {
-	normalized string
-	err        error
-}
-
-func (m *mockOrderNumberValidator) ValidateNumber(number string) (string, error) {
-	if m.err != nil {
-		return "", m.err
-	}
-	return m.normalized, nil
-}
 
 func TestUsecase_Withdraw(t *testing.T) {
 	tests := []struct {
-		name      string
-		svc       *mockWithdrawalsService
-		validator *mockOrderNumberValidator
-		wantErr   bool
+		name          string
+		validatorNorm string
+		validatorErr  error
+		withdrawErr   error
+		wantErr       bool
 	}{
 		{
-			name:      "success",
-			svc:       &mockWithdrawalsService{},
-			validator: &mockOrderNumberValidator{normalized: "12345678903"},
-			wantErr:   false,
+			name:          "success",
+			validatorNorm: "12345678903",
+			wantErr:       false,
 		},
 		{
-			name:      "invalid order number",
-			svc:       &mockWithdrawalsService{},
-			validator: &mockOrderNumberValidator{err: ordersmodel.ErrInvalidOrderNumber},
-			wantErr:   true,
+			name:         "invalid order number",
+			validatorErr: ordersmodel.ErrInvalidOrderNumber,
+			wantErr:      true,
 		},
 		{
-			name: "service error",
-			svc: &mockWithdrawalsService{
-				withdrawErr: errors.New("withdraw failed"),
-			},
-			validator: &mockOrderNumberValidator{normalized: "12345678903"},
-			wantErr:   true,
+			name:          "service error",
+			validatorNorm: "12345678903",
+			withdrawErr:   errors.New("withdraw failed"),
+			wantErr:       true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uc := NewUsecase(tt.svc, tt.validator)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			svc := mocks.NewMockWithdrawalsService(ctrl)
+			validator := mocks.NewMockOrderNumberValidator(ctrl)
+
+			if tt.validatorErr != nil {
+				validator.EXPECT().
+					ValidateNumber("12345678903").
+					Return("", tt.validatorErr)
+				svc.EXPECT().Withdraw(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+			} else {
+				validator.EXPECT().
+					ValidateNumber("12345678903").
+					Return(tt.validatorNorm, nil)
+				svc.EXPECT().
+					Withdraw(gomock.Any(), int64(1), tt.validatorNorm, decimal.NewFromFloat(100)).
+					Return(tt.withdrawErr)
+			}
+
+			uc := NewUsecase(svc, validator)
 			err := uc.Withdraw(context.Background(), 1, "12345678903", decimal.NewFromFloat(100))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Withdraw() error = %v, wantErr %v", err, tt.wantErr)
@@ -82,39 +72,44 @@ func TestUsecase_Withdraw(t *testing.T) {
 
 func TestUsecase_ListWithdrawals(t *testing.T) {
 	tests := []struct {
-		name    string
-		svc     *mockWithdrawalsService
-		wantLen int
-		wantErr bool
+		name        string
+		withdrawals []withdrawalsmodel.Withdrawal
+		listErr     error
+		wantLen     int
+		wantErr     bool
 	}{
 		{
 			name: "success with items",
-			svc: &mockWithdrawalsService{
-				withdrawals: []withdrawalsmodel.Withdrawal{
-					{OrderNumber: "123"},
-				},
+			withdrawals: []withdrawalsmodel.Withdrawal{
+				{OrderNumber: "123"},
 			},
 			wantLen: 1,
 			wantErr: false,
 		},
 		{
 			name:    "empty list",
-			svc:     &mockWithdrawalsService{withdrawals: []withdrawalsmodel.Withdrawal{}},
 			wantLen: 0,
 			wantErr: false,
 		},
 		{
-			name: "service error",
-			svc: &mockWithdrawalsService{
-				listErr: errors.New("list failed"),
-			},
+			name:    "service error",
+			listErr: errors.New("list failed"),
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uc := NewUsecase(tt.svc, &mockOrderNumberValidator{normalized: "123"})
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			svc := mocks.NewMockWithdrawalsService(ctrl)
+			svc.EXPECT().
+				ListWithdrawals(gomock.Any(), int64(1)).
+				Return(tt.withdrawals, tt.listErr)
+
+			validator := mocks.NewMockOrderNumberValidator(ctrl)
+			uc := NewUsecase(svc, validator)
 			items, err := uc.ListWithdrawals(context.Background(), 1)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ListWithdrawals() error = %v, wantErr %v", err, tt.wantErr)

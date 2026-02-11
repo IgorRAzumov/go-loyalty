@@ -8,80 +8,42 @@ import (
 
 	accrualmodel "loyalty/internal/domain/accrual/model"
 	ordersmodel "loyalty/internal/domain/order/model"
+	"loyalty/internal/mocks"
 
 	"github.com/shopspring/decimal"
+	"go.uber.org/mock/gomock"
 )
-
-type mockOrdersRepo struct {
-	orders      []ordersmodel.Order
-	listErr     error
-	updateErr   error
-	updateCalls int
-}
-
-func (m *mockOrdersRepo) Create(ctx context.Context, userID int64, number string) error {
-	return nil
-}
-
-func (m *mockOrdersRepo) ListByUser(ctx context.Context, userID int64) ([]ordersmodel.Order, error) {
-	return nil, nil
-}
-
-func (m *mockOrdersRepo) ListPending(ctx context.Context) ([]ordersmodel.Order, error) {
-	if m.listErr != nil {
-		return nil, m.listErr
-	}
-	return m.orders, nil
-}
-
-func (m *mockOrdersRepo) UpdateFromAccrual(ctx context.Context, number string, status ordersmodel.Status, accrual *decimal.Decimal) error {
-	m.updateCalls++
-	return m.updateErr
-}
-
-type mockOrdersService struct {
-	updateErr error
-}
-
-func (m *mockOrdersService) UploadOrder(ctx context.Context, userID int64, orderNumber string) error {
-	return nil
-}
-
-func (m *mockOrdersService) LoadOrders(ctx context.Context, userID int64) ([]ordersmodel.Order, error) {
-	return nil, nil
-}
-
-func (m *mockOrdersService) UpdateFromAccrual(ctx context.Context, orderNumber string, accrualStatus accrualmodel.AccrualStatus, accrual *decimal.Decimal) error {
-	return m.updateErr
-}
-
-type mockAccrualClient struct {
-	response *accrualmodel.Accrual
-	err      error
-}
-
-func (m *mockAccrualClient) GetOrderAccrual(ctx context.Context, orderNumber string) (*accrualmodel.Accrual, error) {
-	return m.response, m.err
-}
 
 func TestWorker_processBatch(t *testing.T) {
 	tests := []struct {
-		name string
-		repo *mockOrdersRepo
+		name    string
+		orders  []ordersmodel.Order
+		listErr error
 	}{
 		{
-			name: "empty orders",
-			repo: &mockOrdersRepo{orders: []ordersmodel.Order{}},
+			name:   "empty orders",
+			orders: []ordersmodel.Order{},
 		},
 		{
-			name: "repo error",
-			repo: &mockOrdersRepo{listErr: errors.New("db error")},
+			name:    "repo error",
+			listErr: errors.New("db error"),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := NewWorker(tt.repo, &mockOrdersService{}, &mockAccrualClient{}, DefaultConfig())
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			repo := mocks.NewMockOrdersRepository(ctrl)
+			repo.EXPECT().
+				ListPending(gomock.Any()).
+				Return(tt.orders, tt.listErr)
+
+			svc := mocks.NewMockOrdersService(ctrl)
+			client := mocks.NewMockAccrualClient(ctrl)
+
+			w := NewWorker(repo, svc, client, DefaultConfig())
 			w.processBatch(context.Background())
 		})
 	}
@@ -89,77 +51,81 @@ func TestWorker_processBatch(t *testing.T) {
 
 func TestWorker_processOrder(t *testing.T) {
 	tests := []struct {
-		name    string
-		repo    *mockOrdersRepo
-		service *mockOrdersService
-		client  *mockAccrualClient
-		order   ordersmodel.Order
+		name       string
+		order      ordersmodel.Order
+		accrual    *accrualmodel.Accrual
+		accrualErr error
+		updateErr  error
 	}{
 		{
 			name:    "accrual found and updated",
-			repo:    &mockOrdersRepo{},
-			service: &mockOrdersService{},
-			client: &mockAccrualClient{
-				response: &accrualmodel.Accrual{
-					Order:   "123",
-					Status:  accrualmodel.StatusProcessed,
-					Accrual: decimalPtr(100),
-				},
-			},
-			order: ordersmodel.Order{Number: "123", Status: ordersmodel.StatusNew},
+			order:   ordersmodel.Order{Number: "123", Status: ordersmodel.StatusNew},
+			accrual: &accrualmodel.Accrual{Order: "123", Status: accrualmodel.StatusProcessed, Accrual: decimalPtr(100)},
 		},
 		{
 			name:    "accrual not found (204)",
-			repo:    &mockOrdersRepo{},
-			service: &mockOrdersService{},
-			client:  &mockAccrualClient{response: nil},
 			order:   ordersmodel.Order{Number: "123", Status: ordersmodel.StatusNew},
+			accrual: nil,
 		},
 		{
-			name:    "rate limit error",
-			repo:    &mockOrdersRepo{},
-			service: &mockOrdersService{},
-			client:  &mockAccrualClient{err: accrualmodel.ErrTooManyRequests},
-			order:   ordersmodel.Order{Number: "123", Status: ordersmodel.StatusNew},
+			name:       "rate limit error",
+			order:      ordersmodel.Order{Number: "123", Status: ordersmodel.StatusNew},
+			accrualErr: accrualmodel.ErrTooManyRequests,
 		},
 		{
-			name:    "network error",
-			repo:    &mockOrdersRepo{},
-			service: &mockOrdersService{},
-			client:  &mockAccrualClient{err: errors.New("connection failed")},
-			order:   ordersmodel.Order{Number: "123", Status: ordersmodel.StatusNew},
+			name:       "network error",
+			order:      ordersmodel.Order{Number: "123", Status: ordersmodel.StatusNew},
+			accrualErr: errors.New("connection failed"),
 		},
 		{
-			name:    "update error",
-			repo:    &mockOrdersRepo{},
-			service: &mockOrdersService{updateErr: errors.New("update failed")},
-			client: &mockAccrualClient{
-				response: &accrualmodel.Accrual{
-					Order:   "123",
-					Status:  accrualmodel.StatusProcessed,
-					Accrual: decimalPtr(100),
-				},
-			},
-			order: ordersmodel.Order{Number: "123", Status: ordersmodel.StatusNew},
+			name:      "update error",
+			order:     ordersmodel.Order{Number: "123", Status: ordersmodel.StatusNew},
+			accrual:   &accrualmodel.Accrual{Order: "123", Status: accrualmodel.StatusProcessed, Accrual: decimalPtr(100)},
+			updateErr: errors.New("update failed"),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			repo := mocks.NewMockOrdersRepository(ctrl)
+			svc := mocks.NewMockOrdersService(ctrl)
+			client := mocks.NewMockAccrualClient(ctrl)
+
+			client.EXPECT().
+				GetOrderAccrual(gomock.Any(), tt.order.Number).
+				Return(tt.accrual, tt.accrualErr)
+
+			if tt.accrual != nil && tt.accrualErr == nil {
+				svc.EXPECT().
+					UpdateFromAccrual(gomock.Any(), tt.order.Number, gomock.Any(), gomock.Any()).
+					Return(tt.updateErr)
+			}
+
 			cfg := DefaultConfig()
 			cfg.RequestDelay = 0
 			cfg.RetryAfterMin = 10 * time.Millisecond
-			w := NewWorker(tt.repo, tt.service, tt.client, cfg)
+
+			w := NewWorker(repo, svc, client, cfg)
 			w.processOrder(context.Background(), tt.order)
 		})
 	}
 }
 
 func TestWorker_SleepIfPaused(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	repo := mocks.NewMockOrdersRepository(ctrl)
+	svc := mocks.NewMockOrdersService(ctrl)
+	client := mocks.NewMockAccrualClient(ctrl)
+
 	cfg := DefaultConfig()
 	cfg.RequestDelay = 0
 	cfg.RetryAfterMin = 0
-	w := NewWorker(&mockOrdersRepo{}, &mockOrdersService{}, &mockAccrualClient{}, cfg)
+	w := NewWorker(repo, svc, client, cfg)
 
 	pauseFor := 25 * time.Millisecond
 	w.extendPauseUntil(time.Now().Add(pauseFor))
@@ -168,7 +134,6 @@ func TestWorker_SleepIfPaused(t *testing.T) {
 	w.sleepIfPaused(context.Background())
 	elapsed := time.Since(start)
 
-	// небольшая погрешность на планировщик
 	if elapsed < pauseFor-5*time.Millisecond {
 		t.Fatalf("sleepIfPaused slept %s, want at least %s", elapsed, pauseFor)
 	}

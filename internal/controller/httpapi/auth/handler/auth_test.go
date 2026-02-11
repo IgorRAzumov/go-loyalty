@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,34 +9,26 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/mock/gomock"
 
 	networkmodel "loyalty/internal/controller/httpapi/auth/model"
 	common "loyalty/internal/controller/httpapi/common/model"
 	"loyalty/internal/domain/auth/model"
-	"loyalty/internal/domain/auth/usecase"
+	"loyalty/internal/mocks"
 )
-
-type mockUsecase struct {
-	registerFn func(ctx context.Context, login, password string) (string, error)
-	loginFn    func(ctx context.Context, login, password string) (string, error)
-}
-
-func (m *mockUsecase) Register(ctx context.Context, login, password string) (string, error) {
-	return m.registerFn(ctx, login, password)
-}
-func (m *mockUsecase) Login(ctx context.Context, login, password string) (string, error) {
-	return m.loginFn(ctx, login, password)
-}
-
-var _ usecase.AuthUsecase = (*mockUsecase)(nil)
 
 func TestHandler_Register_SetsAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	uc := &mockUsecase{
-		registerFn: func(context.Context, string, string) (string, error) { return "token123", nil },
-		loginFn:    func(context.Context, string, string) (string, error) { panic("not used") },
-	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	uc := mocks.NewMockAuthUsecase(ctrl)
+	uc.EXPECT().
+		Register(gomock.Any(), "alice", "longenough10").
+		Return("token123", nil)
+	uc.EXPECT().Login(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+
 	h := NewAuthHandler(uc)
 
 	r := gin.New()
@@ -71,10 +62,15 @@ func TestHandler_Register_SetsAuth(t *testing.T) {
 func TestHandler_Login_UnauthorizedOnInvalidCreds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	uc := &mockUsecase{
-		registerFn: func(context.Context, string, string) (string, error) { panic("not used") },
-		loginFn:    func(context.Context, string, string) (string, error) { return "", model.ErrInvalidCreds },
-	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	uc := mocks.NewMockAuthUsecase(ctrl)
+	uc.EXPECT().Register(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+	uc.EXPECT().
+		Login(gomock.Any(), "alice", "longenough10").
+		Return("", model.ErrInvalidCreds)
+
 	h := NewAuthHandler(uc)
 
 	r := gin.New()
@@ -100,10 +96,15 @@ func TestHandler_Login_UnauthorizedOnInvalidCreds(t *testing.T) {
 func TestHandler_Register_ConflictOnLoginTaken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	uc := &mockUsecase{
-		registerFn: func(context.Context, string, string) (string, error) { return "", model.ErrLoginTaken },
-		loginFn:    func(context.Context, string, string) (string, error) { panic("not used") },
-	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	uc := mocks.NewMockAuthUsecase(ctrl)
+	uc.EXPECT().
+		Register(gomock.Any(), "alice", "longenough10").
+		Return("", model.ErrLoginTaken)
+	uc.EXPECT().Login(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+
 	h := NewAuthHandler(uc)
 
 	r := gin.New()
@@ -123,10 +124,15 @@ func TestHandler_Register_ConflictOnLoginTaken(t *testing.T) {
 func TestHandler_Register_500OnUnexpected(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	uc := &mockUsecase{
-		registerFn: func(context.Context, string, string) (string, error) { return "", errors.New("boom") },
-		loginFn:    func(context.Context, string, string) (string, error) { panic("not used") },
-	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	uc := mocks.NewMockAuthUsecase(ctrl)
+	uc.EXPECT().
+		Register(gomock.Any(), "alice", "longenough10").
+		Return("", errors.New("boom"))
+	uc.EXPECT().Login(gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+
 	h := NewAuthHandler(uc)
 
 	r := gin.New()

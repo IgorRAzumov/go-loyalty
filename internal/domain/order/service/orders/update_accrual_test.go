@@ -6,9 +6,11 @@ import (
 	"testing"
 
 	accrualmodel "loyalty/internal/domain/accrual/model"
-	"loyalty/internal/domain/order/model"
+	ordersmodel "loyalty/internal/domain/order/model"
+	"loyalty/internal/mocks"
 
 	"github.com/shopspring/decimal"
+	"go.uber.org/mock/gomock"
 )
 
 func TestService_UpdateFromAccrual(t *testing.T) {
@@ -54,16 +56,21 @@ func TestService_UpdateFromAccrual(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := &mockRepoWithError{updateErr: tt.repoErr}
-			svc := NewService(repo, &mockNumberValidator{})
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			expectedStatus := mapAccrualStatusToOrderStatus(tt.accrualStatus)
+			repo := mocks.NewMockOrdersRepository(ctrl)
+			repo.EXPECT().
+				UpdateFromAccrual(gomock.Any(), "123", expectedStatus, tt.accrual).
+				Return(tt.repoErr)
+
+			num := mocks.NewMockOrderNumberValidator(ctrl)
+			svc := NewService(repo, num)
 
 			err := svc.UpdateFromAccrual(context.Background(), "123", tt.accrualStatus, tt.accrual)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("UpdateFromAccrual() error = %v, wantErr %v", err, tt.wantErr)
-			}
-
-			if !tt.wantErr && !repo.updateCalled {
-				t.Error("expected repo.UpdateFromAccrual to be called")
 			}
 		})
 	}
@@ -72,13 +79,13 @@ func TestService_UpdateFromAccrual(t *testing.T) {
 func TestMapAccrualStatusToOrderStatus(t *testing.T) {
 	tests := []struct {
 		accrualStatus accrualmodel.AccrualStatus
-		want          model.Status
+		want          ordersmodel.Status
 	}{
-		{accrualmodel.StatusRegistered, model.StatusProcessing},
-		{accrualmodel.StatusProcessing, model.StatusProcessing},
-		{accrualmodel.StatusInvalid, model.StatusInvalid},
-		{accrualmodel.StatusProcessed, model.StatusProcessed},
-		{"UNKNOWN", model.StatusProcessing},
+		{accrualmodel.StatusRegistered, ordersmodel.StatusProcessing},
+		{accrualmodel.StatusProcessing, ordersmodel.StatusProcessing},
+		{accrualmodel.StatusInvalid, ordersmodel.StatusInvalid},
+		{accrualmodel.StatusProcessed, ordersmodel.StatusProcessed},
+		{"UNKNOWN", ordersmodel.StatusProcessing},
 	}
 
 	for _, tt := range tests {
@@ -89,23 +96,6 @@ func TestMapAccrualStatusToOrderStatus(t *testing.T) {
 			}
 		})
 	}
-}
-
-type mockRepoWithError struct {
-	mockRepo
-	updateErr    error
-	updateCalled bool
-}
-
-func (m *mockRepoWithError) UpdateFromAccrual(ctx context.Context, number string, status model.Status, accrual *decimal.Decimal) error {
-	m.updateCalled = true
-	return m.updateErr
-}
-
-type mockNumberValidator struct{}
-
-func (m *mockNumberValidator) ValidateNumber(number string) (string, error) {
-	return number, nil
 }
 
 func decimalPtr(v float64) *decimal.Decimal {

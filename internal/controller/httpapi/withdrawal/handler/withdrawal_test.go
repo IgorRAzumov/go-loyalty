@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"loyalty/internal/controller/httpapi/auth/authctx"
@@ -13,37 +12,26 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
+	"go.uber.org/mock/gomock"
 
 	common "loyalty/internal/controller/httpapi/common/model"
 	ordersmodel "loyalty/internal/domain/order/model"
 	withdrawalsmodel "loyalty/internal/domain/withdrawal/model"
-	withdrawalsusecase "loyalty/internal/domain/withdrawal/usecase"
+	"loyalty/internal/mocks"
 )
-
-type mockWithdrawalsUsecase struct {
-	withdrawFn func(ctx context.Context, userID int64, orderNumber string, sum decimal.Decimal) error
-	listFn     func(ctx context.Context, userID int64) ([]withdrawalsmodel.Withdrawal, error)
-}
-
-func (m *mockWithdrawalsUsecase) Withdraw(ctx context.Context, userID int64, orderNumber string, sum decimal.Decimal) error {
-	return m.withdrawFn(ctx, userID, orderNumber, sum)
-}
-func (m *mockWithdrawalsUsecase) ListWithdrawals(ctx context.Context, userID int64) ([]withdrawalsmodel.Withdrawal, error) {
-	return m.listFn(ctx, userID)
-}
-
-var _ withdrawalsusecase.WithdrawalsUsecase = (*mockWithdrawalsUsecase)(nil)
 
 func TestHandler_Withdraw_402OnInsufficientFunds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockWithdrawalsUsecase{
-		withdrawFn: func(context.Context, int64, string, decimal.Decimal) error {
-			return withdrawalsmodel.ErrInsufficientFunds
-		},
-		listFn: func(context.Context, int64) ([]withdrawalsmodel.Withdrawal, error) { panic("not used") },
-	})
+	uc := mocks.NewMockWithdrawalsUsecase(ctrl)
+	uc.EXPECT().
+		Withdraw(gomock.Any(), int64(1), "2377225624", gomock.Any()).
+		Return(withdrawalsmodel.ErrInsufficientFunds)
+	uc.EXPECT().ListWithdrawals(gomock.Any(), gomock.Any()).MaxTimes(0)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.POST("/api/user/balance/withdraw", h.Withdraw)
 
@@ -64,12 +52,16 @@ func TestHandler_Withdraw_402OnInsufficientFunds(t *testing.T) {
 
 func TestHandler_Withdraw_422OnInvalidOrderNumber(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockWithdrawalsUsecase{
-		withdrawFn: func(context.Context, int64, string, decimal.Decimal) error { return ordersmodel.ErrInvalidOrderNumber },
-		listFn:     func(context.Context, int64) ([]withdrawalsmodel.Withdrawal, error) { panic("not used") },
-	})
+	uc := mocks.NewMockWithdrawalsUsecase(ctrl)
+	uc.EXPECT().
+		Withdraw(gomock.Any(), int64(1), "abc", gomock.Any()).
+		Return(ordersmodel.ErrInvalidOrderNumber)
+	uc.EXPECT().ListWithdrawals(gomock.Any(), gomock.Any()).MaxTimes(0)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.POST("/api/user/balance/withdraw", h.Withdraw)
 
@@ -90,14 +82,16 @@ func TestHandler_Withdraw_422OnInvalidOrderNumber(t *testing.T) {
 
 func TestHandler_Withdraw_400OnInvalidSum(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockWithdrawalsUsecase{
-		withdrawFn: func(context.Context, int64, string, decimal.Decimal) error {
-			return withdrawalsmodel.ErrInvalidWithdrawSum
-		},
-		listFn: func(context.Context, int64) ([]withdrawalsmodel.Withdrawal, error) { panic("not used") },
-	})
+	uc := mocks.NewMockWithdrawalsUsecase(ctrl)
+	uc.EXPECT().
+		Withdraw(gomock.Any(), int64(1), "2377225624", gomock.Any()).
+		Return(withdrawalsmodel.ErrInvalidWithdrawSum)
+	uc.EXPECT().ListWithdrawals(gomock.Any(), gomock.Any()).MaxTimes(0)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.POST("/api/user/balance/withdraw", h.Withdraw)
 
@@ -118,12 +112,16 @@ func TestHandler_Withdraw_400OnInvalidSum(t *testing.T) {
 
 func TestHandler_Withdraw_200OnOK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockWithdrawalsUsecase{
-		withdrawFn: func(context.Context, int64, string, decimal.Decimal) error { return nil },
-		listFn:     func(context.Context, int64) ([]withdrawalsmodel.Withdrawal, error) { panic("not used") },
-	})
+	uc := mocks.NewMockWithdrawalsUsecase(ctrl)
+	uc.EXPECT().
+		Withdraw(gomock.Any(), int64(1), "2377225624", gomock.Any()).
+		Return(nil)
+	uc.EXPECT().ListWithdrawals(gomock.Any(), gomock.Any()).MaxTimes(0)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.POST("/api/user/balance/withdraw", h.Withdraw)
 
@@ -141,12 +139,14 @@ func TestHandler_Withdraw_200OnOK(t *testing.T) {
 
 func TestHandler_Withdraw_400OnBadJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockWithdrawalsUsecase{
-		withdrawFn: func(context.Context, int64, string, decimal.Decimal) error { panic("not used") },
-		listFn:     func(context.Context, int64) ([]withdrawalsmodel.Withdrawal, error) { panic("not used") },
-	})
+	uc := mocks.NewMockWithdrawalsUsecase(ctrl)
+	uc.EXPECT().Withdraw(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+	uc.EXPECT().ListWithdrawals(gomock.Any(), gomock.Any()).MaxTimes(0)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.POST("/api/user/balance/withdraw", h.Withdraw)
 
@@ -166,12 +166,14 @@ func TestHandler_Withdraw_400OnBadJSON(t *testing.T) {
 
 func TestHandler_List_204OnEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockWithdrawalsUsecase{
-		withdrawFn: func(context.Context, int64, string, decimal.Decimal) error { panic("not used") },
-		listFn:     func(context.Context, int64) ([]withdrawalsmodel.Withdrawal, error) { return nil, nil },
-	})
+	uc := mocks.NewMockWithdrawalsUsecase(ctrl)
+	uc.EXPECT().Withdraw(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+	uc.EXPECT().ListWithdrawals(gomock.Any(), int64(1)).Return(nil, nil)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.GET("/api/user/withdrawals", h.List)
 
@@ -187,17 +189,17 @@ func TestHandler_List_204OnEmpty(t *testing.T) {
 
 func TestHandler_List_200WithItems(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
 	now := time.Date(2026, 1, 28, 12, 0, 0, 0, time.UTC)
-	h := NewHandler(&mockWithdrawalsUsecase{
-		withdrawFn: func(context.Context, int64, string, decimal.Decimal) error { panic("not used") },
-		listFn: func(context.Context, int64) ([]withdrawalsmodel.Withdrawal, error) {
-			return []withdrawalsmodel.Withdrawal{
-				{OrderNumber: "2377225624", Sum: decimal.RequireFromString("10.5"), ProcessedAt: now},
-			}, nil
-		},
-	})
+	uc := mocks.NewMockWithdrawalsUsecase(ctrl)
+	uc.EXPECT().Withdraw(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+	uc.EXPECT().ListWithdrawals(gomock.Any(), int64(1)).Return([]withdrawalsmodel.Withdrawal{
+		{OrderNumber: "2377225624", Sum: decimal.RequireFromString("10.5"), ProcessedAt: now},
+	}, nil)
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.GET("/api/user/withdrawals", h.List)
 
@@ -222,12 +224,14 @@ func TestHandler_List_200WithItems(t *testing.T) {
 
 func TestHandler_List_500OnUnexpectedError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	h := NewHandler(&mockWithdrawalsUsecase{
-		withdrawFn: func(context.Context, int64, string, decimal.Decimal) error { panic("not used") },
-		listFn:     func(context.Context, int64) ([]withdrawalsmodel.Withdrawal, error) { return nil, errors.New("boom") },
-	})
+	uc := mocks.NewMockWithdrawalsUsecase(ctrl)
+	uc.EXPECT().Withdraw(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+	uc.EXPECT().ListWithdrawals(gomock.Any(), int64(1)).Return(nil, errors.New("boom"))
 
+	h := NewHandler(uc)
 	r := gin.New()
 	r.GET("/api/user/withdrawals", h.List)
 
